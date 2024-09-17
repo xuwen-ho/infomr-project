@@ -1,13 +1,20 @@
 from vedo import*
-
+import re
 #Step1: Visualization
 
 # test
+
+# Get the file name
+file_path = "ShapeDatabase_INFOMR/AquaticAnimal/m54.obj" #copy the root path
+file_name = re.search(r'([^/]+)(?=\.obj$)', file_path)
+
 # Create a scene window
-plotter = Plotter(title="OBJ Shape Viewer", axes=1)  # visualization with axes
+plotter = Plotter(title="Visualization of " + file_name.group(0), axes=0)  # visualization without axes
+print(file_name.group(0))
 
 # Load the model.obj
-mesh = load("ShapeDatabase_INFOMR/AircraftBuoyant/m1337.obj")
+# Test different shape
+mesh = load(file_path)
 
 # Set display parameters
 model_color = 'white'
@@ -20,5 +27,5 @@ mesh.flat().lighting(lighting)  # set light effect
 # Show model with interactive controls
 plotter.show(mesh, interactive=True)
 
-# Enable interaction
-plotter.interactor.Start()
+# Shut down when the window is closed
+plotter.close()
