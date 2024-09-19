@@ -4,6 +4,16 @@ import os
 import numpy as np
 
 #Step 2: Preprocessing and cleaning
+class Model:
+    def __init__(self):
+        self.name = name
+        self.path = path
+        self.mesh = mesh
+        self.type = type
+        self.nVertices = nVertices
+        self.nFaces = nFaces
+        self.typeFaces = typeFaces
+        self.boundingBox = boundingBox
 
 #Step 2.1: Analyzing a single shape
 # Output for each shape:
@@ -13,14 +23,24 @@ import numpy as np
 # the type of faces (e.g. only triangles, only quads, mixes of triangles and quads)
 # the axis-aligned 3D bounding box of the shapes
 
-file_path = "ShapeDatabase_INFOMR/AquaticAnimal/m54.obj" #copy the root path
-
-mesh = vedo.load(file_path)
-vertices = mesh.vertices
-num_vertices = vertices.shape[0]
-num_faces = len(mesh.cells)
-num_vertices_of_faces = mesh.count_vertices()
-type_of_faces = np.unique(num_vertices_of_faces)
-bounding_box = mesh.bounds()
+# file_path = "ShapeDatabase_INFOMR/AquaticAnimal/m54.obj" #copy the root path
+#
+# mesh = vedo.load(file_path)
+# vertices = mesh.vertices
+# num_vertices = vertices.shape[0]
+# num_faces = len(mesh.cells)
+# num_vertices_of_faces = mesh.count_vertices()
+# type_of_faces = np.unique(num_vertices_of_faces)
+# bounding_box = mesh.bounds()
 
 #Step 2.2: Statistics over the whole database
+root = 'ShapeDatabase_INFOMR'
+objects = []
+for dirpath, dirnames, filenames in os.walk(root):
+    for file in filenames:
+        if file.endswith('.obj'):
+            file_path = os.path.join(dirpath, file)
+            print(file_path)
+            folder_name = os.path.basename(dirpath)
+            model = Model()
+
