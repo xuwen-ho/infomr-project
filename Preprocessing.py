@@ -13,7 +13,7 @@ class Model:
         self.type = type
         self.mesh = mesh
         self.nVertices = nVertices
-        self.nFaces = nVertices
+        self.nFaces = nFaces
         self.typeFaces = typeFaces
         self.boundingBox = boungdingBox
 
@@ -60,9 +60,9 @@ for dirpath, dirnames, filenames in os.walk(root):
 # Save in a CSV file
 with open('ShapeDatabase_INFOMR.csv', 'w', newline='') as file:
     writer = csv.writer(file)
-    # 写入 CSV 文件的表头
+    # Write the top line
     writer.writerow(['File name', 'Class', 'Number of faces', 'Number of vertices','Type of faces', 'Bounding box'])
-    # 写入每一行数据
+    # Write the data on each line
     for model in models:
         print(model.name)
         writer.writerow([model.name, model.type, model.nFaces, model.nVertices, model.typeFaces, model.boundingBox])
