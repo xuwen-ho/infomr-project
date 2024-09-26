@@ -13,7 +13,7 @@ class Model:
         self.type = type
         self.mesh = mesh
         self.nVertices = nVertices
-        self.nFaces = nVertices
+        self.nFaces = nFaces
         self.typeFaces = typeFaces
         self.boundingBox = boungdingBox
 
