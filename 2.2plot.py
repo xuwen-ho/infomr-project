@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Assuming the CSV has headers as saved in your code
-df = pd.read_csv('ShapeDatabase_INFOMR.csv')
+df = pd.read_csv('Resampled.csv')
 
 average_vertices = df['Number of vertices'].mean()
 average_faces = df['Number of faces'].mean()
