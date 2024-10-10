@@ -1,14 +1,19 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Assuming the CSV has headers as saved in your code
-df = pd.read_csv('Resampled.csv')
+df = pd.read_csv('ShapeDatabase_INFOMR.csv')
 
 average_vertices = df['Number of vertices'].mean()
 average_faces = df['Number of faces'].mean()
 
 print(f"Average number of vertices: {average_vertices}")
 print(f"Average number of faces: {average_faces}")
+percentile_33_vertices = np.percentile(df['Number of vertices'], 33)
+print(f"33rd percentile of vertices: {percentile_33_vertices}")
+percentile_33_faces = np.percentile(df['Number of faces'], 33)
+print(f"33rd percentile of faces: {percentile_33_faces}")
 
 
 plt.figure(figsize=(10, 6))
@@ -17,7 +22,7 @@ plt.title('Histogram of Vertex Counts')
 plt.xlabel('Number of Vertices')
 plt.ylabel('Frequency')
 plt.axvline(average_vertices, color='red', linestyle='dashed', linewidth=1)
-plt.text(average_vertices, plt.ylim()[1]*0.9, 'Average', color = 'red')
+plt.text(average_vertices, plt.ylim()[1]*0.9, f'Average: {average_vertices:.2f}', color = 'red')
 plt.show()
 
 plt.figure(figsize=(10, 6))
@@ -26,7 +31,7 @@ plt.title('Histogram of Face Counts')
 plt.xlabel('Number of Faces')
 plt.ylabel('Frequency')
 plt.axvline(average_faces, color='red', linestyle='dashed', linewidth=1)
-plt.text(average_faces, plt.ylim()[1]*0.9, 'Average', color = 'red')
+plt.text(average_faces, plt.ylim()[1]*0.9, f'Average: {average_faces:.2f}', color = 'red')
 plt.show()
 
 

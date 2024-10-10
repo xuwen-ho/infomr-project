@@ -5,7 +5,9 @@ import re
 # test
 
 # Get the file name
-file_path = "ShapeDatabase_INFOMR/Apartment/D00045.obj" #copy the root path
+# file_path = "ShapeDatabase_INFOMR\AquaticAnimal\m81.obj" #copy the root path
+file_path = "Resampled/Guitar\centered_D00023.obj" #copy the root path
+# file_path = "Resampled\Guitar\D00023.obj" #copy the root path
 file_name = re.search(r'([^/]+)(?=\.obj$)', file_path)
 
 # Create a scene window
