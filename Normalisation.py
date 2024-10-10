@@ -1,5 +1,5 @@
 import os
-from vedo import Mesh, load, write
+from vedo import *
 
 """
 Step 2.4 Normalisation
@@ -30,12 +30,28 @@ def process_obj_files(directory, normalisationStepList):
             
             # Shift the center to the origin
             mesh.shift(-barycenter)
+
+            ellipsoid = pca_ellipsoid(mesh)
+            print("axis 1 size:", ellipsoid.va)
+            print("axis 2 size:", ellipsoid.vb)
+            print("axis 3 size:", ellipsoid.vc)
+            print("axis 1 direction:", ellipsoid.axis1)
+            print("axis 2 direction:", ellipsoid.axis2)
+            print("axis 3 direction:", ellipsoid.axis3)
             
             # Save the modified mesh
-            output_filepath = os.path.join(directory, f"centered_{filename}")
-            write(mesh, output_filepath)
+            # output_filepath = os.path.join(directory, f"centered_{filename}")
+            # write(mesh, output_filepath)
             
-            print(f"Processed and saved: {output_filepath}")
+            # print(f"Processed and saved: {output_filepath}")
+
+            a1 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis1)
+            a2 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis2, c="b4")
+            a3 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis3, c="g4")
+            triad = Assembly(a1, a2, a3) 
+
+            show(
+                mesh, triad,).close()
 
 # Specify the directory containing the .obj files
 directory = "Resampled/Guitar"
@@ -43,5 +59,5 @@ directory = "Resampled/Guitar"
 
 
 # Process the files
-process_obj_files(directory)
+process_obj_files(directory, [])
 
