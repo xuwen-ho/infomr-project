@@ -38,10 +38,20 @@ def process_obj_files(directory, normalisationStepList):
             print("axis 1 direction:", ellipsoid.axis1)
             print("axis 2 direction:", ellipsoid.axis2)
             print("axis 3 direction:", ellipsoid.axis3)
-            
+
+            axisSizeList = np.array([ellipsoid.va, ellipsoid.vb, ellipsoid.vc])
+            axisList = np.array([ellipsoid.axis1, ellipsoid.axis2, ellipsoid.axis3])
+
+            sizeIndex = axisSizeList.argsort()[::-1]
+            axisSizeList = axisSizeList[sizeIndex]
+            axisList = axisList[sizeIndex]
+
+            print(axisSizeList, axisList)
             # Save the modified mesh
             # output_filepath = os.path.join(directory, f"centered_{filename}")
             # write(mesh, output_filepath)
+
+            
             
             # print(f"Processed and saved: {output_filepath}")
 
@@ -50,11 +60,14 @@ def process_obj_files(directory, normalisationStepList):
             a3 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis3, c="g4")
             triad = Assembly(a1, a2, a3) 
 
+            # mesh.reorient(1, vector(ellipsoid.axis2[0],ellipsoid.axis2[1],ellipsoid.axis2[2]), xyplane=True)
+            mesh.reorient(initaxis=1, newaxis=ellipsoid.axis1)
+
             show(
-                mesh, triad,).close()
+                mesh, triad, axes=2,).close()
 
 # Specify the directory containing the .obj files
-directory = "Resampled/Guitar"
+directory = "Resampled/car"
 
 
 
