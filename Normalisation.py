@@ -51,17 +51,28 @@ def process_obj_files(directory, normalisationStepList):
             # output_filepath = os.path.join(directory, f"centered_{filename}")
             # write(mesh, output_filepath)
 
+            angle_x = np.degrees(np.arccos(np.dot(ellipsoid.axis1, [1,0,0])))
+            angle_y = np.degrees(np.arccos(np.dot(ellipsoid.axis2, [0,1,0])))
+            angle_z = np.degrees(np.arccos(np.dot(ellipsoid.axis3, [0,0,1])))
+            print(f"  X-axis: {angle_x:.2f}°")
+            print(f"  Y-axis: {angle_y:.2f}°")
+            print(f"  Z-axis: {angle_z:.2f}°")
+
             
             
             # print(f"Processed and saved: {output_filepath}")
 
-            a1 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis1)
-            a2 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis2, c="b4")
-            a3 = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis3, c="g4")
-            triad = Assembly(a1, a2, a3) 
+            xAxisArrow = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis1)
+            yAxisArrow = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis2, c="g4")
+            zAxisArrow = Arrow(ellipsoid.center, ellipsoid.center + ellipsoid.axis3, c="b4")
+            triad = Assembly(xAxisArrow, yAxisArrow, zAxisArrow)
 
             # mesh.reorient(1, vector(ellipsoid.axis2[0],ellipsoid.axis2[1],ellipsoid.axis2[2]), xyplane=True)
-            mesh.reorient(initaxis=1, newaxis=ellipsoid.axis1)
+            # mesh.reorient(initaxis=1, newaxis=ellipsoid.axis1)
+
+            mesh.scale(1/ellipsoid.va)
+            # mesh.scale(50)
+            # print(mesh.bounds())
 
             show(
                 mesh, triad, axes=2,).close()
