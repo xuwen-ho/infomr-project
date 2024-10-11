@@ -70,9 +70,18 @@ def process_obj_files(directory, normalisationStepList):
             # mesh.reorient(1, vector(ellipsoid.axis2[0],ellipsoid.axis2[1],ellipsoid.axis2[2]), xyplane=True)
             # mesh.reorient(initaxis=1, newaxis=ellipsoid.axis1)
 
-            mesh.scale(1/ellipsoid.va)
-            # mesh.scale(50)
-            # print(mesh.bounds())
+            # 2.4.4: Scale it to within unit volume
+            bounds = mesh.bounds()
+            dimensions = [
+                abs(bounds[1] - bounds[0]),  # X-axis
+                abs(bounds[3] - bounds[2]),  # Y-axis
+                abs(bounds[5] - bounds[4])   # Z-axis
+            ]
+            longest_length = max(dimensions)
+            mesh.scale(1/longest_length)
+
+            # 2.4.4 Test: Ensure within unit volume
+            print(mesh.bounds())
 
             show(
                 mesh, triad, axes=2,).close()
