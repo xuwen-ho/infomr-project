@@ -1,9 +1,10 @@
 import numpy as np
 import open3d as o3d
-
+import copy
+import os
 
 def normalize_shape(mesh):
-    #Position normalization
+    # Step 2.5: Position normalization
     # First get the barycenter position of the shape
     vertices = np.asarray(mesh.vertices)
 
@@ -11,44 +12,90 @@ def normalize_shape(mesh):
     barycenter = np.mean(vertices, axis=0)
     vertices_centered = vertices - barycenter
 
-    # Alignment normalization
-    # Apply principal component analysis (PCA)
-
-    #Compute new AABB after alignment normalization
+    # Step 3.1: Alignment normalization using PCA
+    # Compute a covariance matrix of the vertex positions
     covariance_matrix = np.cov(vertices_centered.T)
 
-    # Compute scaling factor
+    # Compute Eigenvectors and Eigenvalues of the covariance matrix & sort Eigenvectors by Eigenvalue
     eigenvalues, eigenvectors = np.linalg.eigh(covariance_matrix)
 
-    # 使用特征向量对顶点进行对齐
+    # Align the vertices using the eigenvectors
     vertices_aligned = vertices_centered @ eigenvectors
 
-    # Step 3: 尺度标准化 (将模型缩放至单位立方体)
-    # 获取对齐后的模型的轴对齐边界框（AABB）
+    # Step 3.1: Flipping test
+    ## Calculate the sign of the mass distribution along each axis (X, Y, Z)
+    signs = np.sign(np.sum(vertices_aligned, axis=0))  # 计算 X, Y, Z 轴上质量分布
+    for i in range(3):  # Iterate over each axis (X, Y, Z)
+        if signs[i] < 0:
+            vertices_aligned[:, i] *= -1  # Flip the axis if needed
+
+    # Step 2.5: Scale normalization
+    # Calculate the axis-aligned bounding box (AABB) of the aligned shape
     min_bound = np.min(vertices_aligned, axis=0)
     max_bound = np.max(vertices_aligned, axis=0)
     aabb_size = max_bound - min_bound
 
-    # 计算缩放因子，确保最大维度为 1
+    # Compute the scaling factor to ensure the largest dimension is 1
     scaling_factor = 1.0 / np.max(aabb_size)
 
-    # 缩放顶点
+    # Scale the vertices to fit within a unit cube
     vertices_scaled = vertices_aligned * scaling_factor
 
-    # 更新 mesh 的顶点
+    # Update the mesh with the scaled vertices
     mesh.vertices = o3d.utility.Vector3dVector(vertices_scaled)
 
     return mesh
 
 
-# 读取一个 3D 网格文件 (OBJ/PLY/STL等格式)
-mesh = o3d.io.read_triangle_mesh("path_to_your_mesh_file.obj")
+input_folder = "Resampled"
+output_folder = "Normalized"
 
-# 进行标准化
-normalized_mesh = normalize_shape(mesh)
+# 确保输出文件夹存在
+if not os.path.exists(output_folder):
+    os.makedirs(output_folder)
 
-# 保存标准化后的模型
-o3d.io.write_triangle_mesh("normalized_mesh.obj", normalized_mesh)
+# Batch process mesh
+for dirpath, dirnames, filenames in os.walk(input_folder):
+    for file in filenames:  #file should be like D0001.obj
+        if file.endswith('.obj'): #filter .obj
+            folder_name = os.path.basename(dirpath) #Get the class of shapes
+            input_path = os.path.join(input_folder, folder_name, file)
+            output_path = os.path.join(output_folder, folder_name, file)
 
-# 可视化标准化后的模型
-o3d.visualization.draw_geometries([normalized_mesh])
+            # 确保目录存在
+            output_dir = os.path.join(output_folder, folder_name)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            try:
+                # 读取一个 3D 网格文件 (OBJ/PLY/STL等格式)
+                mesh = o3d.io.read_triangle_mesh(input_path)
+
+                # # Create a copy of the original mesh for visualization purposes
+                # original_mesh = copy.deepcopy(mesh)
+
+                # Perform the normalization
+                normalized_mesh = normalize_shape(mesh)
+
+                # Save the normalized mesh
+                o3d.io.write_triangle_mesh(output_path, normalized_mesh)
+
+                # # Move the original mesh slightly to the left for side-by-side comparison
+                # original_mesh.translate([-2, 0, 0])
+
+                # # Move the normalized mesh slightly to the right for side-by-side comparison
+                # normalized_mesh.translate([2, 0, 0])
+                #
+                # # Visualize the original and normalized meshes together
+                # o3d.visualization.draw_geometries([original_mesh, normalized_mesh],
+                #                                   window_name="Original vs Normalized Mesh",
+                #                                   width=800, height=600)
+
+                print(f"Processed and saved: {output_path}")
+
+            except Exception as e:
+                print(f"Error processing {file}: {e}")
+
+
+
+
