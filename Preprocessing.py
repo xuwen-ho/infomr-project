@@ -42,7 +42,7 @@ class Model:
 # # bounding_box = mesh.bounds()
 #
 # #Step 2.2: Statistics over the whole database
-root = 'Resampled'
+root = 'Normalized'
 models = [] #list to store models in the database
 for dirpath, dirnames, filenames in os.walk(root):
     for file in filenames:  #file should be like D0001.obj
@@ -62,7 +62,7 @@ for dirpath, dirnames, filenames in os.walk(root):
             print(len(models))
 
 # Save in a CSV file
-with open('Resampled.csv', 'w', newline='') as file:
+with open('Normalized.csv', 'w', newline='') as file:
     writer = csv.writer(file)
     # Write the top line
     writer.writerow(['File name', 'Class', 'Number of faces', 'Number of vertices','Type of faces', 'Bounding box'])
@@ -71,7 +71,7 @@ with open('Resampled.csv', 'w', newline='') as file:
         print(model.name)
         writer.writerow([model.name, model.type, model.nFaces, model.nVertices, model.typeFaces, model.boundingBox])
 
-print(f"结果已保存到 {'Resampled.csv'}")
+print(f"结果已保存到 {'Normalized.csv'}")
 
 #Step 2.3: Resampling outliers
 # 创建 MeshSet 对象并加载网格
@@ -162,6 +162,8 @@ print(f"结果已保存到 {'Resampled.csv'}")
 # input_folder = "Outliers_Removed"  # 包含所有模型的文件夹路径（低多边形或高多边形模型）
 # output_folder = "Resampled"  # 输出结果保存路径
 # target_vertex_count = 5000  # 目标顶点数量
+# max_iterations = 10  # 最大迭代次数，避免无限迭代
+# tolerance = 200  # 容忍范围，接近目标顶点数时停止迭代
 #
 # # 确保输出文件夹存在
 # if not os.path.exists(output_folder):
@@ -191,25 +193,36 @@ print(f"结果已保存到 {'Resampled.csv'}")
 #                     original_vertex_count = ms.current_mesh().vertex_number()
 #                     print(f"Processing {file} (original vertices: {original_vertex_count})...")
 #
-#                     # 如果当前顶点数大于目标顶点数，则简化
-#                     if original_vertex_count > target_vertex_count:
-#                         print(f"Simplifying {file} to {target_vertex_count} vertices...")
-#                         ms.meshing_decimation_quadric_edge_collapse(targetfacenum=None, targetvertnum=target_vertex_count)
+#                     # 动态调整顶点数以接近目标顶点数
+#                     if abs(original_vertex_count - target_vertex_count) <= tolerance:
+#                         # 顶点数已接近目标，直接保存
+#                         print(f"{file} already has vertex count close to target. Saving without changes.")
 #                         ms.save_current_mesh(output_path)
-#                         print(f"Simplified mesh saved as {output_path} (final vertices: approx. {target_vertex_count})")
 #
-#                     # 如果当前顶点数小于目标顶点数，则进行上采样
-#                     elif original_vertex_count < target_vertex_count:
-#                         print(f"Upsampling {file} to reach approx. {target_vertex_count} vertices...")
+#                     else:
+#                         # 根据顶点数进行简化或上采样
 #                         iterations = 0
-#                         while ms.current_mesh().vertex_number() < target_vertex_count:
-#                             ms.meshing_surface_subdivision_loop(iterations=1)
+#                         while abs(
+#                                 ms.current_mesh().vertex_number() - target_vertex_count) > tolerance and iterations < max_iterations:
+#                             current_vertex_count = ms.current_mesh().vertex_number()
+#
+#                             if current_vertex_count > target_vertex_count:
+#                                 print(f"Simplifying {file} to reduce vertices...")
+#                                 ms.meshing_decimation_quadric_edge_collapse(targetvertnum=target_vertex_count)
+#                             else:
+#                                 print(f"Upsampling {file} to increase vertices...")
+#                                 ms.meshing_surface_subdivision_loop(iterations=1)
+#
 #                             iterations += 1
+#                             new_vertex_count = ms.current_mesh().vertex_number()
+#                             print(f"Iteration {iterations}: New vertex count is {new_vertex_count}")
+#
+#                         # 保存处理后的网格
 #                         ms.save_current_mesh(output_path)
-#                         print(f"Upsampled mesh saved as {output_path} (final vertices: approx. {target_vertex_count})")
+#                         print(f"Final mesh saved as {output_path} (final vertices: {new_vertex_count})")
 #
 #                 except Exception as e:
-#                     print(f"Error processing {file}: {e}")
+#                         print(f"Error processing {file}: {e}")
 #
 #
 # # 批量处理所有模型，将顶点数调整到目标数量（5000左右）

@@ -30,7 +30,7 @@ def normalize_shape(mesh):
             vertices_aligned[:, i] *= -1  # Flip the axis if needed
 
     # Step 2.5: Scale normalization
-    # Calculate the axis-aligned bounding box (AABB) of the aligned shape
+    # Calculate the axis-aligned bounding box Q(AABB) of the aligned shape
     min_bound = np.min(vertices_aligned, axis=0)
     max_bound = np.max(vertices_aligned, axis=0)
     aabb_size = max_bound - min_bound
@@ -49,7 +49,7 @@ def normalize_shape(mesh):
 
 input_folder = "Resampled"
 output_folder = "Normalized"
-
+errors = []
 # 确保输出文件夹存在
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
@@ -94,8 +94,10 @@ for dirpath, dirnames, filenames in os.walk(input_folder):
                 print(f"Processed and saved: {output_path}")
 
             except Exception as e:
+                errors.append(input_path)
                 print(f"Error processing {file}: {e}")
 
+print(f"Number of the models having error: {len(errors)}")
 
 
 
