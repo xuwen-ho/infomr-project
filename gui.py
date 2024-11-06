@@ -11,16 +11,16 @@ import math
 class ShapeComparisonGUI:
     def __init__(self):
         print("Initializing ShapeComparisonGUI...")  # Debug print
-        self.database_path = os.path.join(os.getcwd(), "Resampled")
+        self.database_path = os.path.join(os.getcwd(), "Normalized")
         print(f"Looking for database in: {self.database_path}")  # Debug print
         self.shapes_dict = {}  # Dictionary to store loaded shapes
         self.current_shape = None
         self.selected_shape_path = None
-        self.K = 1
+        self.K = 5
         
         # Initialize the plotter with interactive flag
         self.plt = Plotter(
-            N=2,  # Two viewports
+            N=6,  # Two viewports
             axes=1,
             interactive=True,
             size=(1200, 800),  # Larger window size
@@ -197,13 +197,16 @@ class ShapeComparisonGUI:
             # Sort by distance
             distances.sort(key=lambda x: x[0])
             
+            # Clear all viewports except the first one (query shape)
+            for i in range(1, 6):  # Clear viewports 1-5
+                self.plt.clear(at=i)
+            
             # Display K most similar shapes
             for i in range(min(self.K, len(distances))):
                 dist, path = distances[i]
                 shape = load(path)
-                
-                # Clear and update viewport
-                self.plt.clear(at=i+1)
+                shape.flat().lighting('plastic')  # set light effect
+                # Update viewport (add 1 to skip the query shape viewport)
                 self.plt.show(shape, at=i+1, interactive=False)
                 
                 # Add distance information
@@ -235,6 +238,7 @@ class ShapeComparisonGUI:
             
             # Clear and update the first viewport
             self.plt.clear(at=0)
+            self.current_shape.flat().lighting('plastic')  # set light effect
             self.plt.show(self.current_shape, at=0, interactive=False)
             
             self.status_text.text(f"Selected: {os.path.basename(file_path)}")
