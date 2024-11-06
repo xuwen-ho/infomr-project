@@ -7,6 +7,15 @@ from tkinter import ttk
 from tkinter import messagebox
 from scipy.spatial import distance
 import math
+import open3d as o3d
+import pymeshlab
+from scipy.stats import wasserstein_distance
+# Import functions from feature_extraction.py
+from feature_extraction import (
+    compute_global_descriptors,
+    compute_shape_descriptors,
+    preprocess_mesh
+)
 
 class ShapeComparisonGUI:
     def __init__(self):
@@ -16,7 +25,7 @@ class ShapeComparisonGUI:
         self.shapes_dict = {}  # Dictionary to store loaded shapes
         self.current_shape = None
         self.selected_shape_path = None
-        self.K = 1
+        self.K = 3
         
         # Initialize the plotter with interactive flag
         self.plt = Plotter(
@@ -157,8 +166,102 @@ class ShapeComparisonGUI:
         root.withdraw()  # Hide the root window
         root.mainloop()
 
+    def compute_feature_distances(self, features1, features2):
+        """
+        Compute distances between different feature types separately
+        Returns distances for global features and each histogram separately
+        """
+        # Define indices for different feature types based on the feature vector structure
+        GLOBAL_FEATURES_END = 6  # First 6 are global features
+        HIST_SIZE = 100  # Size of each histogram
+        
+        # Extract global features
+        global_feat1 = features1[:GLOBAL_FEATURES_END]
+        global_feat2 = features2[:GLOBAL_FEATURES_END]
+        
+        # Initialize distances dictionary
+        distances = {
+            'global': self.compute_euclidean_distance(global_feat1, global_feat2),
+            'A3': 0.0,
+            'D1': 0.0,
+            'D2': 0.0,
+            'D3': 0.0,
+            'D4': 0.0
+        }
+        
+        # Compute histogram distances
+        start_idx = GLOBAL_FEATURES_END
+        for hist_name in ['A3', 'D1', 'D2', 'D3', 'D4']:
+            end_idx = start_idx + HIST_SIZE
+            hist1 = features1[start_idx:end_idx]
+            hist2 = features2[start_idx:end_idx]
+            distances[hist_name] = self.compute_emd_distance(hist1, hist2)
+            start_idx = end_idx
+            
+        return distances
+
+    def standardize_distances(self, all_pairwise_distances):
+        """
+        Standardize distances for each feature type based on the distribution
+        of distances in the database
+        """
+        standardized = {}
+        
+        # For each feature type
+        for feat_type in all_pairwise_distances[0].keys():
+            # Get all distances for this feature type
+            distances = [d[feat_type] for d in all_pairwise_distances]
+            
+            # Compute mean and standard deviation
+            mean_dist = np.mean(distances)
+            std_dist = np.std(distances)
+            
+            if std_dist == 0:
+                print(f"Warning: Zero standard deviation for {feat_type} distances")
+                std_dist = 1.0
+                
+            # Store standardization parameters
+            standardized[feat_type] = {
+                'mean': mean_dist,
+                'std': std_dist
+            }
+            
+        return standardized
+
+    def compute_weighted_distance(self, features1, features2, standardization_params):
+        """
+        Compute weighted distance between two feature vectors
+        """
+        # Compute distances for each feature type
+        distances = self.compute_feature_distances(features1, features2)
+        
+        # Standardize each distance
+        weighted_distances = {}
+        for feat_type, dist in distances.items():
+            mean = standardization_params[feat_type]['mean']
+            std = standardization_params[feat_type]['std']
+            weighted_distances[feat_type] = (dist - mean) / std
+        
+        # Combine standardized distances
+        # You can adjust these weights based on the importance of each feature type
+        weights = {
+            'global': 0.3,  # Global features
+            'A3': 0.14,     # Angle histogram
+            'D1': 0.14,     # Distance to center histogram
+            'D2': 0.14,     # Distance between vertices histogram
+            'D3': 0.14,     # Triangle area histogram
+            'D4': 0.14      # Tetrahedron volume histogram
+        }
+        
+        total_distance = sum(
+            weights[feat_type] * weighted_distances[feat_type]
+            for feat_type in weighted_distances
+        )
+        
+        return total_distance
+
     def search_similar_shapes(self, obj, ename):
-        """Search for similar shapes based on geometric features"""
+        """Updated search method with distance weighting"""
         if not self.current_shape:
             print("No shape selected")
             self.status_text.text("Please select a shape first")
@@ -169,30 +272,41 @@ class ShapeComparisonGUI:
             # Extract features from query shape
             query_features = self.extract_features(self.current_shape)
             
-            # Compute features for all shapes in database and store distances
-            distances = []
-            all_features = []
+            # First pass: extract features for all shapes
+            database_features = []
+            database_paths = []
             
-            # First pass: extract all features
             for path in self.shapes_dict.keys():
-                # Skip if it's the same file as the query
                 if path == self.selected_shape_path:
-                    print(f"Skipping query shape: {path}")
                     continue
-
+                    
                 shape = load(path)
                 features = self.extract_features(shape)
-                all_features.append(features) 
+                database_features.append(features)
+                database_paths.append(path)
             
-            # Normalize all features (including query)
-            normalized_features = self.normalize_features([query_features] + all_features)
-            normalized_query = normalized_features[0]
-            normalized_database = normalized_features[1:]
+            # Compute all pairwise distances to get distance distribution
+            all_pairwise_distances = []
+            for i in range(len(database_features)):
+                for j in range(i + 1, len(database_features)):
+                    distances = self.compute_feature_distances(
+                        database_features[i],
+                        database_features[j]
+                    )
+                    all_pairwise_distances.append(distances)
             
-            # Compute distances
-            for i, features in enumerate(normalized_database):
-                dist = self.compute_euclidean_distance(normalized_query, features)
-                distances.append((dist, list(self.shapes_dict.keys())[i]))
+            # Compute standardization parameters
+            standardization_params = self.standardize_distances(all_pairwise_distances)
+            
+            # Compute weighted distances to query shape
+            distances = []
+            for i, features in enumerate(database_features):
+                dist = self.compute_weighted_distance(
+                    query_features,
+                    features,
+                    standardization_params
+                )
+                distances.append((dist, database_paths[i]))
             
             # Sort by distance
             distances.sort(key=lambda x: x[0])
@@ -206,9 +320,13 @@ class ShapeComparisonGUI:
                 self.plt.clear(at=i+1)
                 self.plt.show(shape, at=i+1, interactive=False)
                 
-                # Add distance information
+                # Convert standardized distance back to similarity score
+                # Note: The distance is now in standard deviations, so we need to
+                # transform it to a similarity score between 0 and 100
+                similarity = 100 * np.exp(-max(0, dist))  # Exponential decay
+                
                 self.plt.add(Text2D(
-                    f"Similarity: {(1 - dist)*100:.1f}%\n{os.path.basename(path)}", 
+                    f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
                     pos='top-left', 
                     s=0.8, 
                     c='w', 
@@ -222,6 +340,73 @@ class ShapeComparisonGUI:
             print(f"Error during shape search: {str(e)}")
             self.status_text.text(f"Error during search: {str(e)}")
             messagebox.showerror("Error", f"Search failed: {str(e)}")
+
+    # def search_similar_shapes(self, obj, ename):
+    #     """Search for similar shapes based on geometric features"""
+    #     if not self.current_shape:
+    #         print("No shape selected")
+    #         self.status_text.text("Please select a shape first")
+    #         messagebox.showwarning("Warning", "Please select a shape first")
+    #         return
+        
+    #     try:
+    #         # Extract features from query shape
+    #         query_features = self.extract_features(self.current_shape)
+            
+    #         # Compute features for all shapes in database and store distances
+    #         distances = []
+    #         all_features = []
+            
+    #         # First pass: extract all features
+    #         for path in self.shapes_dict.keys():
+    #             # Skip if it's the same file as the query
+    #             if path == self.selected_shape_path:
+    #                 print(f"Skipping query shape: {path}")
+    #                 continue
+
+    #             shape = load(path)
+    #             print(f"Extracting features for {path}")
+    #             features = self.extract_features(shape)
+    #             all_features.append(features) 
+            
+    #         # Normalize all features (including query)
+    #         normalized_features = self.normalize_features([query_features] + all_features)
+    #         normalized_query = normalized_features[0]
+    #         normalized_database = normalized_features[1:]
+            
+    #         # Compute distances
+    #         for i, features in enumerate(normalized_database):
+    #             dist = self.compute_euclidean_distance(normalized_query, features)
+    #             distances.append((dist, list(self.shapes_dict.keys())[i]))
+            
+    #         # Sort by distance
+    #         distances.sort(key=lambda x: x[0])
+            
+    #         # Display K most similar shapes
+    #         for i in range(min(self.K, len(distances))):
+    #             dist, path = distances[i]
+    #             shape = load(path)
+                
+    #             # Clear and update viewport
+    #             self.plt.clear(at=i+1)
+    #             self.plt.show(shape, at=i+1, interactive=False)
+                
+    #             # Add distance information
+    #             self.plt.add(Text2D(
+    #                 f"Similarity: {(1 - dist)*100:.1f}%\n{os.path.basename(path)}", 
+    #                 pos='top-left', 
+    #                 s=0.8, 
+    #                 c='w', 
+    #                 bg='black'
+    #             ), at=i+1)
+            
+    #         self.status_text.text(f"Found {self.K} most similar shapes")
+    #         print("Shape search completed")
+            
+    #     except Exception as e:
+    #         print(f"Error during shape search: {str(e)}")
+    #         self.status_text.text(f"Error during search: {str(e)}")
+    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
 
     def load_selected_shape(self, file_path):
         """Load and display the selected shape"""
@@ -244,47 +429,50 @@ class ShapeComparisonGUI:
             self.status_text.text(f"Error loading shape: {str(e)}")
             messagebox.showerror("Error", f"Failed to load shape: {str(e)}")
 
-    # REPLACE BELOW PLACEHOLDERS
     def extract_features(self, mesh):
         """Extract geometric features from a mesh"""
-        # Basic geometric features
-        features = {}
-        
-        # Surface area
-        features['surface_area'] = mesh.area()
-        
-        # Volume
-        features['volume'] = mesh.volume()
-        
-        # Bounding box features
-        bounds = mesh.bounds()
-        features['bbox_length'] = bounds[1] - bounds[0]  # x dimension
-        features['bbox_width'] = bounds[3] - bounds[2]   # y dimension
-        features['bbox_height'] = bounds[5] - bounds[4]  # z dimension
-        
-        # Compactness (surface area³ / (36π * volume²))
-        if features['volume'] > 0:
-            features['compactness'] = (features['surface_area']**3) / (36 * math.pi * features['volume']**2)
-        else:
-            features['compactness'] = 0
-        
-        # Number of vertices and faces
-        features['vertex_count'] = mesh.npoints
-        features['face_count'] = mesh.ncells
-        
-        # Convert to numpy array in consistent order
-        feature_vector = np.array([
-            features['surface_area'],
-            features['volume'],
-            features['bbox_length'],
-            features['bbox_width'],
-            features['bbox_height'],
-            features['compactness'],
-            features['vertex_count'],
-            features['face_count']
-        ])
-        
-        return feature_vector
+        try:
+            # Save the mesh temporarily to use with feature extraction functions
+            temp_file = "temp_mesh.obj"
+            mesh.write(temp_file)
+            
+            # Preprocess the mesh
+            fixed_mesh_file = preprocess_mesh(temp_file)
+            
+            # Load with Open3D for shape descriptors
+            mesh_o3d = o3d.io.read_triangle_mesh(fixed_mesh_file)
+            mesh_o3d.compute_vertex_normals()
+            
+            # Get global descriptors
+            global_features = compute_global_descriptors(fixed_mesh_file)
+            
+            # Get shape descriptors (local features)
+            shape_features = compute_shape_descriptors(mesh_o3d, "temp_output")
+            
+            # Combine all features into a single vector
+            feature_vector = np.array([
+                global_features['Surface Area'],
+                global_features['Compactness'],
+                global_features['Rectangularity'],
+                global_features['Diameter'],
+                global_features['Convexity'],
+                global_features['Eccentricity']
+            ])
+            
+            # Append histograms from shape descriptors
+            for hist in shape_features.values():
+                feature_vector = np.concatenate([feature_vector, hist])
+            
+            # Clean up temporary files
+            os.remove(temp_file)
+            if os.path.exists(fixed_mesh_file):
+                os.remove(fixed_mesh_file)
+                
+            return feature_vector
+            
+        except Exception as e:
+            print(f"Error in feature extraction: {str(e)}")
+            raise
 
     def normalize_features(self, features_list):
         """Normalize features using min-max normalization"""
@@ -302,7 +490,20 @@ class ShapeComparisonGUI:
     def compute_euclidean_distance(self, features1, features2):
         """Compute Euclidean distance between two feature vectors"""
         return distance.euclidean(features1, features2)
-    # REPLACE UP TO HERE
+
+    def compute_manhattan_distance(self, features1, features2):
+        """Compute Manhattan (L1) distance between two feature vectors"""
+        return distance.cityblock(features1, features2)
+
+    def compute_emd_distance(self, features1, features2):
+        """
+        Compute Earth Mover's Distance (Wasserstein distance) between feature vectors
+        Note: This is particularly useful for comparing histograms in the feature vectors
+        """
+        # Ensure the features are properly normalized for EMD
+        f1_norm = features1 / np.sum(features1)
+        f2_norm = features2 / np.sum(features2)
+        return wasserstein_distance(f1_norm, f2_norm)
 
     def run(self):
       """Start the GUI"""
