@@ -1,0 +1,21 @@
+Error processing m1337.obj in AircraftBuoyant: 
+Error processing m1338.obj in AircraftBuoyant: 
+Error processing m1339.obj in AircraftBuoyant: 
+Error processing m1337.obj in AircraftBuoyant: 
+Error processing m1338.obj in AircraftBuoyant: 
+Error processing m1337.obj in AircraftBuoyant: 
+Error processing m1338.obj in AircraftBuoyant: 
+Error processing m1339.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'load_mesh'
+Error processing m1340.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'load_mesh'
+Error processing D00045.obj in Apartment: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'load_mesh'
+Error processing D00086.obj in Apartment: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'load_mesh'
+Error processing m1337.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1338.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1339.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1340.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1341.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1342.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1343.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertices'
+Error processing m1337.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertex_number'
+Error processing m1337.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertex_number'
+Error processing m1338.obj in AircraftBuoyant: 'pymeshlab.pmeshlab.MeshSet' object has no attribute 'vertex_number'
