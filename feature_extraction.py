@@ -166,7 +166,7 @@ def compute_shape_descriptors(mesh, filename_prefix, num_samples=160000, num_bin
     d3_areas = normalize_histogram(np.histogram(d3_areas, bins=num_bins, density=False)[0].tolist())
     d4_volumes = normalize_histogram(np.histogram(d4_volumes, bins=num_bins, density=False)[0].tolist())
 
-    # 保存直方图
+    # # 保存直方图
     save_histogram(a3_angles, 'A3 Angle Distribution', f'{filename_prefix}_A3.png')
     save_histogram(d1_distances, 'D1 Distance Distribution', f'{filename_prefix}_D1.png')
     save_histogram(d2_distances, 'D2 Distance Distribution', f'{filename_prefix}_D2.png')
@@ -185,29 +185,21 @@ def compute_shape_descriptors(mesh, filename_prefix, num_samples=160000, num_bin
 
 # 保存特征到 CSV 文件
 def save_features_to_csv(features, csv_file="shape_features.csv"):
-    shape_name = features["Shape Name"]
-    updated = False
+    fieldnames = ["Shape Name", "Class"] + list(features.keys())[2:]
 
-    # 加载现有数据
-    data = []
-    if os.path.isfile(csv_file):
-        with open(csv_file, mode="r", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                if row["Shape Name"] == shape_name:
-                    data.append(features)  # 如果模型已存在，用新特征覆盖
-                    updated = True
-                else:
-                    data.append(row)  # 否则保留原有记录
+    # 检查 CSV 文件是否存在
+    file_exists = os.path.isfile(csv_file)
 
-    # 如果模型不存在于现有数据中，则添加新记录
-    if not updated:
-        data.append(features)
-
+    # 使用写入模式更新 CSV 文件
     with open(csv_file, mode="a", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["Shape Name", "Class"] + list(features.keys())[2:])
-        writer.writeheader()
-        writer.writerows(data)
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+
+        # 如果文件不存在，写入标题
+        if not file_exists:
+            writer.writeheader()
+
+        # 写入模型的特征
+        writer.writerow(features)
 
 # 从 CSV 文件加载并打印特定形状的特征
 def load_and_print_features(shape_name, csv_file="shape_features.csv"):
@@ -232,14 +224,14 @@ def process_single_model(mesh_file, output_prefix):
         shape_class = os.path.basename(directory)
 
         # 修复孔洞并确保网格一致
-        fixed_mesh_file = preprocess_mesh(mesh_file)
+        # fixed_mesh_file = preprocess_mesh(mesh_file)
 
         # 加载修复后的网格
-        mesh_o3d = o3d.io.read_triangle_mesh(fixed_mesh_file)
+        mesh_o3d = o3d.io.read_triangle_mesh(mesh_file)
         mesh_o3d.compute_vertex_normals()
 
         # 计算全局特征
-        global_descriptors = compute_global_descriptors(fixed_mesh_file)
+        global_descriptors = compute_global_descriptors(mesh_file)
 
         # 计算局部特征并保存直方图
         shape_descriptors = compute_shape_descriptors(mesh_o3d, output_prefix)
@@ -253,11 +245,28 @@ def process_single_model(mesh_file, output_prefix):
     except Exception as e:
         print(f"Error processing {mesh_file}: {e}")
 
+def process_dataset(input_folder, output_folder):
+    for dirpath, _, filenames in os.walk(input_folder):
+        for file in filenames:  # file should be like D0001.obj
+            if file.endswith('.obj'):  # filter .obj
+                input_path = os.path.join(input_folder, file)
+                print(input_path)
+
+                output_prefix = os.path.join(output_folder, file)
+                print(output_prefix)
+                try:
+                    process_single_model(input_path, output_prefix)
+                except Exception as e:
+                    print(f"Error processing {file}: {e}")
+
 # 示例：处理单个模型
 def main():
+    input_folder = 'Normalized/Train'
+    output_folder = 'output/Train'
     mesh_file = "Normalized/AircraftBuoyant/m1337.obj"  # 替换为实际的3D模型路径
     output_prefix = "output/model"  # 输出文件前缀
-    process_single_model(mesh_file, output_prefix)
+    # process_single_model(mesh_file, output_prefix)
+    process_dataset(input_folder, output_folder)
 
 if __name__ == "__main__":
     main()
