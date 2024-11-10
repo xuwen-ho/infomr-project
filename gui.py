@@ -206,77 +206,8 @@ class ShapeComparisonGUI:
         root.withdraw()  # Hide the root window
         root.mainloop()
 
-    # def search_similar_shapes(self, obj, ename):
-    #     """Search for similar shapes based on geometric features"""
-    #     if not self.current_shape:
-    #         print("No shape selected")
-    #         self.status_text.text("Please select a shape first")
-    #         messagebox.showwarning("Warning", "Please select a shape first")
-    #         return
-        
-    #     try:
-    #         # Extract features from query shape
-    #         query_features = self.extract_features(self.current_shape)
-            
-    #         # Compute features for all shapes in database and store distances
-    #         distances = []
-    #         all_features = []
-            
-    #         # First pass: extract all features
-    #         for path in self.shapes_dict.keys():
-    #             # Skip if it's the same file as the query
-    #             if path == self.selected_shape_path:
-    #                 print(f"Skipping query shape: {path}")
-    #                 continue
-
-    #             shape = load(path)
-    #             features = self.extract_features(shape)
-    #             all_features.append(features) 
-            
-    #         # Normalize all features (including query)
-    #         normalized_features = self.normalize_features([query_features] + all_features)
-    #         normalized_query = normalized_features[0]
-    #         normalized_database = normalized_features[1:]
-            
-    #         # Compute distances
-    #         for i, features in enumerate(normalized_database):
-    #             dist = self.compute_euclidean_distance(normalized_query, features)
-    #             distances.append((dist, list(self.shapes_dict.keys())[i]))
-            
-    #         # Sort by distance
-    #         distances.sort(key=lambda x: x[0])
-            
-    #         # Clear all viewports except the first one (query shape)
-    #         for i in range(1, 6):  # Clear viewports 1-5
-    #             self.plt.clear(at=i)
-            
-    #         # Display K most similar shapes
-    #         for i in range(min(self.K, len(distances))):
-    #             dist, path = distances[i]
-    #             shape = load(path)
-    #             shape.flat().lighting('plastic')  # set light effect
-    #             # Update viewport (add 1 to skip the query shape viewport)
-    #             self.plt.show(shape, at=i+1, interactive=False)
-                
-    #             # Add distance information
-    #             self.plt.add(Text2D(
-    #                 f"Similarity: {(1 - dist)*100:.1f}%\n{os.path.basename(path)}", 
-    #                 pos='top-left', 
-    #                 s=0.8, 
-    #                 c='w', 
-    #                 bg='black'
-    #             ), at=i+1)
-            
-    #         self.status_text.text(f"Found {self.K} most similar shapes")
-    #         print("Shape search completed")
-            
-    #     except Exception as e:
-    #         print(f"Error during shape search: {str(e)}")
-    #         self.status_text.text(f"Error during search: {str(e)}")
-    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
-
     def search_similar_shapes(self, obj, ename):
-        """Search for similar shapes using ANN"""
+        """Search for similar shapes based on geometric features"""
         if not self.current_shape:
             print("No shape selected")
             self.status_text.text("Please select a shape first")
@@ -284,51 +215,57 @@ class ShapeComparisonGUI:
             return
         
         try:
-            # Extract and normalize query features
+            # Extract features from query shape
             query_features = self.extract_features(self.current_shape)
-            query_features = self.normalize_features(np.array([query_features]))[0]
             
-            # Find K nearest neighbors
-            distances, indices = self.ann_model.kneighbors([query_features])
+            # Compute features for all shapes in database and store distances
+            distances = []
+            all_features = []
             
-            # Clear viewports except the first one
-            for i in range(1, 6):
+            # First pass: extract all features
+            for path in self.shapes_dict.keys():
+                # Skip if it's the same file as the query
+                if path == self.selected_shape_path:
+                    print(f"Skipping query shape: {path}")
+                    continue
+
+                shape = load(path)
+                features = self.extract_features(shape)
+                all_features.append(features) 
+            
+            # Normalize all features (including query)
+            normalized_features = self.normalize_features([query_features] + all_features)
+            normalized_query = normalized_features[0]
+            normalized_database = normalized_features[1:]
+            
+            # Compute distances
+            for i, features in enumerate(normalized_database):
+                dist = self.compute_euclidean_distance(normalized_query, features)
+                distances.append((dist, list(self.shapes_dict.keys())[i]))
+            
+            # Sort by distance
+            distances.sort(key=lambda x: x[0])
+            
+            # Clear all viewports except the first one (query shape)
+            for i in range(1, 6):  # Clear viewports 1-5
                 self.plt.clear(at=i)
             
-            # Create results table
-            results_data = []
-            
             # Display K most similar shapes
-            for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
-                if i >= self.K:
-                    break
-                    
-                path = self.shape_paths[idx]
+            for i in range(min(self.K, len(distances))):
+                dist, path = distances[i]
                 shape = load(path)
-                shape.flat().lighting('plastic')
-                
-                # Update viewport
+                shape.flat().lighting('plastic')  # set light effect
+                # Update viewport (add 1 to skip the query shape viewport)
                 self.plt.show(shape, at=i+1, interactive=False)
                 
-                # Add similarity information
-                similarity = (1 - dist) * 100
+                # Add distance information
                 self.plt.add(Text2D(
-                    f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
+                    f"Similarity: {(1 - dist)*100:.1f}%\n{os.path.basename(path)}", 
                     pos='top-left', 
                     s=0.8, 
                     c='w', 
                     bg='black'
                 ), at=i+1)
-                
-                # Add to results table
-                results_data.append({
-                    'Shape': os.path.basename(path),
-                    'Category': self.shapes_dict[path]['category'],
-                    'Similarity': f"{similarity:.1f}%"
-                })
-            
-            # Display results table
-            self.show_results_table(results_data)
             
             self.status_text.text(f"Found {self.K} most similar shapes")
             print("Shape search completed")
@@ -337,6 +274,69 @@ class ShapeComparisonGUI:
             print(f"Error during shape search: {str(e)}")
             self.status_text.text(f"Error during search: {str(e)}")
             messagebox.showerror("Error", f"Search failed: {str(e)}")
+
+    # def search_similar_shapes(self, obj, ename):
+    #     """Search for similar shapes using ANN"""
+    #     if not self.current_shape:
+    #         print("No shape selected")
+    #         self.status_text.text("Please select a shape first")
+    #         messagebox.showwarning("Warning", "Please select a shape first")
+    #         return
+        
+    #     try:
+    #         # Extract and normalize query features
+    #         query_features = self.extract_features(self.current_shape)
+    #         query_features = self.normalize_features(np.array([query_features]))[0]
+            
+    #         # Find K nearest neighbors
+    #         distances, indices = self.ann_model.kneighbors([query_features])
+            
+    #         # Clear viewports except the first one
+    #         for i in range(1, 6):
+    #             self.plt.clear(at=i)
+            
+    #         # Create results table
+    #         results_data = []
+            
+    #         # Display K most similar shapes
+    #         for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
+    #             if i >= self.K:
+    #                 break
+                    
+    #             path = self.shape_paths[idx]
+    #             shape = load(path)
+    #             shape.flat().lighting('plastic')
+                
+    #             # Update viewport
+    #             self.plt.show(shape, at=i+1, interactive=False)
+                
+    #             # Add similarity information
+    #             similarity = (1 - dist) * 100
+    #             self.plt.add(Text2D(
+    #                 f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
+    #                 pos='top-left', 
+    #                 s=0.8, 
+    #                 c='w', 
+    #                 bg='black'
+    #             ), at=i+1)
+                
+    #             # Add to results table
+    #             results_data.append({
+    #                 'Shape': os.path.basename(path),
+    #                 'Category': self.shapes_dict[path]['category'],
+    #                 'Similarity': f"{similarity:.1f}%"
+    #             })
+            
+    #         # Display results table
+    #         self.show_results_table(results_data)
+            
+    #         self.status_text.text(f"Found {self.K} most similar shapes")
+    #         print("Shape search completed")
+            
+    #     except Exception as e:
+    #         print(f"Error during shape search: {str(e)}")
+    #         self.status_text.text(f"Error during search: {str(e)}")
+    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
 
     def show_results_table(self, results_data):
         """Display results in a table format"""
@@ -427,7 +427,7 @@ class ShapeComparisonGUI:
         # Create legend elements
         legend_elements = [plt.Line2D([0], [0], marker='o', color='w', 
                                     markerfacecolor=category_colors[cat], 
-                                    label=f'{cat} ({count} shapes)', 
+                                    label=f'{cat}', 
                                     markersize=8)
                          for cat, count in all_categories]
         
