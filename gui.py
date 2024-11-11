@@ -10,26 +10,33 @@ import math
 import open3d as o3d
 import pymeshlab
 from scipy.stats import wasserstein_distance
+import ast  # Add this import for safely evaluating string representations of lists
+
 # Import functions from feature_extraction.py
 from feature_extraction import (
     compute_global_descriptors,
     compute_shape_descriptors,
     preprocess_mesh
 )
+import pandas as pd
 
 class ShapeComparisonGUI:
     def __init__(self):
         print("Initializing ShapeComparisonGUI...")  # Debug print
-        self.database_path = os.path.join(os.getcwd(), "Resampled")
+        self.database_path = os.path.join(os.getcwd(), "Normalized_subset")
         print(f"Looking for database in: {self.database_path}")  # Debug print
         self.shapes_dict = {}  # Dictionary to store loaded shapes
         self.current_shape = None
         self.selected_shape_path = None
-        self.K = 3
+        self.K = 5
+
+        # NEW: Load pre-computed features from CSV
+        self.features_db = None
+        self.load_precomputed_features()
         
         # Initialize the plotter with interactive flag
         self.plt = Plotter(
-            N=2,  # Two viewports
+            N=6,  # Two viewports
             axes=1,
             interactive=True,
             size=(1200, 800),  # Larger window size
@@ -260,8 +267,25 @@ class ShapeComparisonGUI:
         
         return total_distance
 
+    # Add method to load pre-computed features
+    def load_precomputed_features(self):
+        """Load pre-computed features from CSV file"""
+        try:
+            self.features_db = pd.read_csv("shape_features.csv")
+            # Convert string representations of histograms back to numpy arrays
+            hist_columns = ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']
+            for col in hist_columns:
+                self.features_db[col] = self.features_db[col].apply(
+                    lambda x: np.array(ast.literal_eval(x))
+                )
+            print(f"Loaded {len(self.features_db)} pre-computed feature vectors")
+        except Exception as e:
+            print(f"Error loading pre-computed features: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load feature database: {str(e)}")
+
+    # Update search method to use pre-computed features
     def search_similar_shapes(self, obj, ename):
-        """Updated search method with distance weighting"""
+        """Search using pre-computed features from CSV"""
         if not self.current_shape:
             print("No shape selected")
             self.status_text.text("Please select a shape first")
@@ -269,61 +293,97 @@ class ShapeComparisonGUI:
             return
         
         try:
-            # Extract features from query shape
+            # Extract features from query shape only
             query_features = self.extract_features(self.current_shape)
             
-            # First pass: extract features for all shapes
-            database_features = []
-            database_paths = []
+            # Convert query features to same format as database
+            global_features = query_features[:6]
+            hist_features = query_features[6:]
             
-            for path in self.shapes_dict.keys():
-                if path == self.selected_shape_path:
+            # Split histograms
+            hist_size = 100
+            query_hists = {
+                'A3_hist': hist_features[:hist_size],
+                'D1_hist': hist_features[hist_size:2*hist_size],
+                'D2_hist': hist_features[2*hist_size:3*hist_size],
+                'D3_hist': hist_features[3*hist_size:4*hist_size],
+                'D4_hist': hist_features[4*hist_size:5*hist_size]
+            }
+            
+            # Calculate distances to all shapes in database
+            distances = []
+            for idx, row in self.features_db.iterrows():
+                if os.path.basename(self.selected_shape_path) == row['Shape Name']:
                     continue
                     
-                shape = load(path)
-                features = self.extract_features(shape)
-                database_features.append(features)
-                database_paths.append(path)
-            
-            # Compute all pairwise distances to get distance distribution
-            all_pairwise_distances = []
-            for i in range(len(database_features)):
-                for j in range(i + 1, len(database_features)):
-                    distances = self.compute_feature_distances(
-                        database_features[i],
-                        database_features[j]
-                    )
-                    all_pairwise_distances.append(distances)
-            
-            # Compute standardization parameters
-            standardization_params = self.standardize_distances(all_pairwise_distances)
-            
-            # Compute weighted distances to query shape
-            distances = []
-            for i, features in enumerate(database_features):
-                dist = self.compute_weighted_distance(
-                    query_features,
-                    features,
-                    standardization_params
+                # Calculate weighted distance
+                # global_dist = self.compute_euclidean_distance(
+                #     global_features,
+                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
+                # )
+                global_dist = self.compute_emd_distance(
+                    global_features,
+                    [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                     row['Diameter'], row['Convexity'], row['Eccentricity']]
                 )
-                distances.append((dist, database_paths[i]))
+                
+                # Calculate histogram distances
+                hist_distances = {}
+                for hist_name in ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']:
+                    hist_distances[hist_name] = self.compute_emd_distance(
+                        query_hists[hist_name],
+                        row[hist_name]
+                    )
+                
+                # Apply weights (same as before)
+                weights = {
+                    'global': 0.3,
+                    'A3': 0.14,
+                    'D1': 0.14,
+                    'D2': 0.14,
+                    'D3': 0.14,
+                    'D4': 0.14
+                }
+                
+                total_distance = (
+                    weights['global'] * global_dist +
+                    weights['A3'] * hist_distances['A3_hist'] +
+                    weights['D1'] * hist_distances['D1_hist'] +
+                    weights['D2'] * hist_distances['D2_hist'] +
+                    weights['D3'] * hist_distances['D3_hist'] +
+                    weights['D4'] * hist_distances['D4_hist']
+                )
+                
+                # Find the corresponding file path
+                shape_path = os.path.join(
+                    self.database_path,
+                    row['Class'],
+                    row['Shape Name']
+                )
+                distances.append((total_distance, shape_path))
             
-            # Sort by distance
+            # Sort and display results
             distances.sort(key=lambda x: x[0])
+
+            # Clear all viewports except the first one (query shape)
+            for i in range(1, 6):  # Clear viewports 1-
+                print("clear previous")
+                self.plt.clear(at=i)
             
             # Display K most similar shapes
             for i in range(min(self.K, len(distances))):
                 dist, path = distances[i]
-                shape = load(path)
+                print("Loading best matching shapes")
+                shape = load(path + ".obj")
+
+                shape.flat().lighting('plastic')
                 
                 # Clear and update viewport
-                self.plt.clear(at=i+1)
+                # self.plt.clear(at=i+1)
                 self.plt.show(shape, at=i+1, interactive=False)
                 
-                # Convert standardized distance back to similarity score
-                # Note: The distance is now in standard deviations, so we need to
-                # transform it to a similarity score between 0 and 100
-                similarity = 100 * np.exp(-max(0, dist))  # Exponential decay
+                similarity = 100 * np.exp(-max(0, dist))
                 
                 self.plt.add(Text2D(
                     f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
@@ -340,6 +400,86 @@ class ShapeComparisonGUI:
             print(f"Error during shape search: {str(e)}")
             self.status_text.text(f"Error during search: {str(e)}")
             messagebox.showerror("Error", f"Search failed: {str(e)}")
+    # def search_similar_shapes(self, obj, ename):
+    #     """Updated search method with distance weighting"""
+    #     if not self.current_shape:
+    #         print("No shape selected")
+    #         self.status_text.text("Please select a shape first")
+    #         messagebox.showwarning("Warning", "Please select a shape first")
+    #         return
+        
+    #     try:
+    #         # Extract features from query shape
+    #         query_features = self.extract_features(self.current_shape)
+            
+    #         # First pass: extract features for all shapes
+    #         database_features = []
+    #         database_paths = []
+            
+    #         for path in self.shapes_dict.keys():
+    #             if path == self.selected_shape_path:
+    #                 continue
+                    
+    #             shape = load(path)
+    #             features = self.extract_features(shape)
+    #             database_features.append(features)
+    #             database_paths.append(path)
+            
+    #         # Compute all pairwise distances to get distance distribution
+    #         all_pairwise_distances = []
+    #         for i in range(len(database_features)):
+    #             for j in range(i + 1, len(database_features)):
+    #                 distances = self.compute_feature_distances(
+    #                     database_features[i],
+    #                     database_features[j]
+    #                 )
+    #                 all_pairwise_distances.append(distances)
+            
+    #         # Compute standardization parameters
+    #         standardization_params = self.standardize_distances(all_pairwise_distances)
+            
+    #         # Compute weighted distances to query shape
+    #         distances = []
+    #         for i, features in enumerate(database_features):
+    #             dist = self.compute_weighted_distance(
+    #                 query_features,
+    #                 features,
+    #                 standardization_params
+    #             )
+    #             distances.append((dist, database_paths[i]))
+            
+    #         # Sort by distance
+    #         distances.sort(key=lambda x: x[0])
+            
+    #         # Display K most similar shapes
+    #         for i in range(min(self.K, len(distances))):
+    #             dist, path = distances[i]
+    #             shape = load(path)
+                
+    #             # Clear and update viewport
+    #             self.plt.clear(at=i+1)
+    #             self.plt.show(shape, at=i+1, interactive=False)
+                
+    #             # Convert standardized distance back to similarity score
+    #             # Note: The distance is now in standard deviations, so we need to
+    #             # transform it to a similarity score between 0 and 100
+    #             similarity = 100 * np.exp(-max(0, dist))  # Exponential decay
+                
+    #             self.plt.add(Text2D(
+    #                 f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
+    #                 pos='top-left', 
+    #                 s=0.8, 
+    #                 c='w', 
+    #                 bg='black'
+    #             ), at=i+1)
+            
+    #         self.status_text.text(f"Found {self.K} most similar shapes")
+    #         print("Shape search completed")
+            
+    #     except Exception as e:
+    #         print(f"Error during shape search: {str(e)}")
+    #         self.status_text.text(f"Error during search: {str(e)}")
+    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
 
     # def search_similar_shapes(self, obj, ename):
     #     """Search for similar shapes based on geometric features"""
