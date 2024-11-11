@@ -246,12 +246,34 @@ def process_dataset(input_folder, output_folder):
 
 # 示例：处理单个模型
 def main():
-    input_folder = 'Normalized/Train'
-    output_folder = 'output/Train'
+    input_folder = 'Normalized/Drum'
+    output_folder = 'output/Drum'
     mesh_file = "Normalized/AircraftBuoyant/m1337.obj"  # 替换为实际的3D模型路径
     output_prefix = "output/model"  # 输出文件前缀
-    # process_single_model(mesh_file, output_prefix)
-    process_dataset(input_folder, output_folder)
 
+    # process_dataset(input_folder, output_folder)
+    # 创建一个球体
+    sphere = o3d.geometry.TriangleMesh.create_sphere(radius=1.0)
+    sphere.compute_vertex_normals()
+
+    # 保存球体为 OBJ 文件
+    o3d.io.write_triangle_mesh("Test/sphere.obj", sphere)
+
+    # 创建一个立方体
+    cube = o3d.geometry.TriangleMesh.create_box(width=1.0, height=1.0, depth=1.0)
+    cube.compute_vertex_normals()
+
+    # 保存立方体为 OBJ 文件
+    o3d.io.write_triangle_mesh("Test/cube.obj", cube)
+
+    # 创建一个圆柱体
+    cylinder = o3d.geometry.TriangleMesh.create_cylinder(radius=0.5, height=2.0)
+    cylinder.compute_vertex_normals()
+
+    # 保存圆柱体为 OBJ 文件
+    o3d.io.write_triangle_mesh("Test/cylinder.obj", cylinder)
+    process_single_model("Test/sphere.obj", output_prefix)
+    process_single_model("Test/cube.obj", output_prefix)
+    process_single_model("Test/cylinder.obj", output_prefix)
 if __name__ == "__main__":
     main()
