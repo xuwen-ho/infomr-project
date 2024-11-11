@@ -64,12 +64,36 @@ def compute_global_descriptors(mesh_file):
     obb = mesh_o3d.get_oriented_bounding_box()
     obb_volume = obb.volume()
 
-    # 使用自定义方法计算网格体积
-    volume = calculate_volume(ms.current_mesh())
+    # # 使用自定义方法计算网格体积
+    # volume = calculate_volume(ms.current_mesh())
 
-    # 计算凸包体积
-    convex_hull, _ = mesh_o3d.compute_convex_hull()
-    convex_hull_volume = convex_hull.get_volume()
+    # # 计算凸包体积
+    # convex_hull, _ = mesh_o3d.compute_convex_hull()
+    # convex_hull_volume = convex_hull.get_volume()
+
+    try:
+        # 使用自定义方法计算网格体积
+        volume = calculate_volume(ms.current_mesh())
+    except:
+        # If volume calculation fails, use OBB volume as an approximation
+        volume = obb_volume
+
+    try:
+        # 计算凸包体积
+        convex_hull, _ = mesh_o3d.compute_convex_hull()
+        convex_hull_volume = convex_hull.get_volume()
+        
+        # If convex hull volume is 0 or invalid, use OBB volume
+        if convex_hull_volume <= 0:
+            convex_hull_volume = obb_volume
+            convexity = 1.0  # Set to 1.0 as a default value
+        else:
+            # 计算凸度：网格体积除以凸包体积
+            convexity = volume / convex_hull_volume
+    except:
+        # If convex hull computation fails, use OBB volume
+        convex_hull_volume = obb_volume
+        convexity = 1.0  # Set to 1.0 as a default value
 
     # 计算紧凑度
     compactness = (area ** 3) / (36 * np.pi * (volume ** 2))
@@ -167,11 +191,11 @@ def compute_shape_descriptors(mesh, filename_prefix, num_samples=160000, num_bin
     d4_volumes = normalize_histogram(np.histogram(d4_volumes, bins=num_bins, density=False)[0].tolist())
 
     # # 保存直方图
-    save_histogram(a3_angles, 'A3 Angle Distribution', f'{filename_prefix}_A3.png')
-    save_histogram(d1_distances, 'D1 Distance Distribution', f'{filename_prefix}_D1.png')
-    save_histogram(d2_distances, 'D2 Distance Distribution', f'{filename_prefix}_D2.png')
-    save_histogram(d3_areas, 'D3 Triangle Area Distribution', f'{filename_prefix}_D3.png')
-    save_histogram(d4_volumes, 'D4 Tetrahedron Volume Distribution', f'{filename_prefix}_D4.png')
+    # save_histogram(a3_angles, 'A3 Angle Distribution', f'{filename_prefix}_A3.png')
+    # save_histogram(d1_distances, 'D1 Distance Distribution', f'{filename_prefix}_D1.png')
+    # save_histogram(d2_distances, 'D2 Distance Distribution', f'{filename_prefix}_D2.png')
+    # save_histogram(d3_areas, 'D3 Triangle Area Distribution', f'{filename_prefix}_D3.png')
+    # save_histogram(d4_volumes, 'D4 Tetrahedron Volume Distribution', f'{filename_prefix}_D4.png')
 
     # 返回归一化后的数据字典
     return {
@@ -211,9 +235,62 @@ def load_and_print_features(shape_name, csv_file="shape_features.csv"):
                 return
         print(f"No features found for shape '{shape_name}'.")
 
+def collect_global_features(input_folder):
+    """Collect global features from all models to compute mean and std"""
+    all_features = []
+    
+    for dirpath, _, filenames in os.walk(input_folder):
+        for file in filenames:
+            if file.endswith('.obj'):
+                mesh_file = os.path.join(dirpath, file)
+                print("mesh file name: ", mesh_file)
+                try:
+                    features = compute_global_descriptors(mesh_file)
+                    all_features.append(features)
+                except Exception as e:
+                    print(f"Error collecting features from {file}: {e}")
+    
+    return all_features
+
+def compute_statistics(features_list):
+    """Compute mean and std dev for each global feature"""
+    # Initialize dictionaries for means and stds
+    means = {}
+    stds = {}
+    
+    # Get the feature names from the first item
+    if not features_list:
+        return means, stds
+        
+    feature_names = features_list[0].keys()
+    
+    for feature_name in feature_names:
+        # Extract all values for this feature
+        values = [features[feature_name] for features in features_list]
+        values = np.array(values)
+        
+        means[feature_name] = np.mean(values)
+        stds[feature_name] = np.std(values)
+        
+        # Handle zero standard deviation
+        if stds[feature_name] == 0:
+            stds[feature_name] = 1  # Prevent division by zero
+            
+    return means, stds
+
+def standardize_features(features, means, stds):
+    """Standardize a single set of features using pre-computed means and stds"""
+    standardized = {}
+    for feature_name, value in features.items():
+        if feature_name in means and feature_name in stds:
+            standardized[feature_name] = (value - means[feature_name]) / stds[feature_name]
+        else:
+            standardized[feature_name] = value
+    return standardized
+
 
 # 处理单个3D模型
-def process_single_model(mesh_file, output_prefix):
+def process_single_model(mesh_file, output_prefix, means=None, stds=None):
     try:
         print(f"Processing {mesh_file}...")
         # 使用 os.path.split 分割路径，获取文件名
@@ -233,6 +310,9 @@ def process_single_model(mesh_file, output_prefix):
         # 计算全局特征
         global_descriptors = compute_global_descriptors(mesh_file)
 
+        if means is not None and stds is not None:
+            global_descriptors = standardize_features(global_descriptors, means, stds)
+
         # 计算局部特征并保存直方图
         shape_descriptors = compute_shape_descriptors(mesh_o3d, output_prefix)
 
@@ -246,29 +326,49 @@ def process_single_model(mesh_file, output_prefix):
         print(f"Error processing {mesh_file}: {e}")
 
 def process_dataset(input_folder, output_folder):
+    # First pass: collect all global features and compute statistics
+    print("Collecting features for standardization...")
+    all_features = collect_global_features(input_folder)
+    means, stds = compute_statistics(all_features)
+    
+    # Save the statistics for future use
+    stats = {
+        'means': means,
+        'stds': stds
+    }
+    with open(os.path.join(output_folder, 'standardization_stats.json'), 'w') as f:
+        json.dump(stats, f, indent=4)
+    
+    # Second pass: process each model with standardization
     for dirpath, _, filenames in os.walk(input_folder):
-        for file in filenames:  # file should be like D0001.obj
-            if file.endswith('.obj'):  # filter .obj
-                input_path = os.path.join(input_folder, file)
-                print(input_path)
-
+        for file in filenames:
+            if file.endswith('.obj'):
+                input_path = os.path.join(dirpath, file)
                 output_prefix = os.path.join(output_folder, file)
-                print(output_prefix)
                 try:
-                    process_single_model(input_path, output_prefix)
+                    process_single_model(input_path, output_prefix, means, stds)
                 except Exception as e:
                     print(f"Error processing {file}: {e}")
 
+def load_standardization_stats(stats_file):
+    try:
+        with open(stats_file, 'r') as f:
+            stats = json.load(f)
+        return stats['means'], stats['stds']
+    except Exception as e:
+        print(f"Error loading standardization stats: {e}")
+        return None, None
+
 # 示例：处理单个模型
 def main():
-    input_folder = 'Normalized/Drum'
-    output_folder = 'output/Drum'
+    input_folder = 'Normalized_test'
+    output_folder = 'output_test_extraction'
     mesh_file = "Normalized/AircraftBuoyant/m1337.obj"  # 替换为实际的3D模型路径
     output_prefix = "output/model"  # 输出文件前缀
 
     # process_dataset(input_folder, output_folder)
     # 创建一个球体
-    sphere = o3d.geometry.TriangleMesh.create_sphere(radius=1.0)
+    sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.5)
     sphere.compute_vertex_normals()
 
     # 保存球体为 OBJ 文件
@@ -285,10 +385,15 @@ def main():
     cylinder = o3d.geometry.TriangleMesh.create_cylinder(radius=0.5, height=2.0)
     cylinder.compute_vertex_normals()
 
+    # Load standardization stats
+    stats_file = "output_test_extraction/standardization_stats.json"  
+    means, stds = load_standardization_stats(stats_file)
+    print(means, stds)
+
     # 保存圆柱体为 OBJ 文件
-    o3d.io.write_triangle_mesh("Test/cylinder.obj", cylinder)
-    process_single_model("Test/sphere.obj", output_prefix)
-    process_single_model("Test/cube.obj", output_prefix)
-    process_single_model("Test/cylinder.obj", output_prefix)
+    # o3d.io.write_triangle_mesh("Test/cylinder.obj", cylinder)
+    process_single_model("Test/sphere.obj", output_prefix, means, stds)
+    # process_single_model("Test/cube.obj", output_prefix, means, stds)
+    # process_single_model("Test/cylinder.obj", output_prefix)
 if __name__ == "__main__":
     main()

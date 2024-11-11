@@ -1,0 +1,18 @@
+{
+    "means": {
+        "Surface Area": 1.2861277367229815,
+        "Compactness": 81.54969608785377,
+        "Rectangularity": 0.11917413083866395,
+        "Diameter": 1.0812415165382188,
+        "Convexity": 0.24568142468894086,
+        "Eccentricity": 37.97505033127524
+    },
+    "stds": {
+        "Surface Area": 1.1098260889340608,
+        "Compactness": 213.15348891237474,
+        "Rectangularity": 0.11531489839924206,
+        "Diameter": 0.1181621074117688,
+        "Convexity": 0.1952772455891328,
+        "Eccentricity": 96.93096718658043
+    }
+}
