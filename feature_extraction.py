@@ -127,8 +127,23 @@ def compute_shape_descriptors(mesh, filename_prefix, num_samples=160000, num_bin
         a = np.linalg.norm(v1 - v0)
         b = np.linalg.norm(v2 - v0)
         c = np.linalg.norm(v2 - v1)
-        angle = np.arccos((a ** 2 + b ** 2 - c ** 2) / (2 * a * b))
-        a3_angles.append(angle)
+        # angle = np.arccos((a ** 2 + b ** 2 - c ** 2) / (2 * a * b))
+        # a3_angles.append(angle)
+
+        # Skip invalid triangles or ones that would cause numerical issues
+        if a == 0 or b == 0:
+            continue
+        # Compute cosine using the law of cosines
+        cos_angle = (a ** 2 + b ** 2 - c ** 2) / (2 * a * b)
+        # Handle numerical stability
+        if cos_angle > 1:
+            cos_angle = 1
+        elif cos_angle < -1:
+            cos_angle = -1       
+        angle = np.arccos(cos_angle)        
+        # Only append valid angles
+        if not np.isnan(angle):
+            a3_angles.append(angle)
 
         # D1: 重心到顶点的距离
         d1_distances.append(np.linalg.norm(v0 - centroid))
