@@ -16,21 +16,23 @@ import ast  # Add this import for safely evaluating string representations of li
 from feature_extraction import (
     compute_global_descriptors,
     compute_shape_descriptors,
-    preprocess_mesh
+    load_standardization_stats,
+    preprocess_mesh,
+    standardize_features
 )
 import pandas as pd
 
 class ShapeComparisonGUI:
     def __init__(self):
         print("Initializing ShapeComparisonGUI...")  # Debug print
-        self.database_path = os.path.join(os.getcwd(), "Normalized_subset")
+        # self.database_path = os.path.join(os.getcwd(), "C:\Users\User\Downloads\Normalized")
+        self.database_path = r"C:\Users\User\Downloads\Normalized"
         print(f"Looking for database in: {self.database_path}")  # Debug print
         self.shapes_dict = {}  # Dictionary to store loaded shapes
         self.current_shape = None
         self.selected_shape_path = None
         self.K = 5
 
-        # NEW: Load pre-computed features from CSV
         self.features_db = None
         self.load_precomputed_features()
         
@@ -271,7 +273,7 @@ class ShapeComparisonGUI:
     def load_precomputed_features(self):
         """Load pre-computed features from CSV file"""
         try:
-            self.features_db = pd.read_csv("shape_features.csv")
+            self.features_db = pd.read_csv("shape_features_1.csv")
             # Convert string representations of histograms back to numpy arrays
             hist_columns = ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']
             for col in hist_columns:
@@ -322,6 +324,7 @@ class ShapeComparisonGUI:
                 #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
                 #      row['Diameter'], row['Convexity'], row['Eccentricity']]
                 # )
+                # print('calculating emd distance')
                 global_dist = self.compute_emd_distance(
                     global_features,
                     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
@@ -370,11 +373,12 @@ class ShapeComparisonGUI:
             for i in range(1, 6):  # Clear viewports 1-
                 print("clear previous")
                 self.plt.clear(at=i)
+                # self.plt.remove(at=i)  # This ensures complete clearing of previous results
             
             # Display K most similar shapes
             for i in range(min(self.K, len(distances))):
                 dist, path = distances[i]
-                print("Loading best matching shapes")
+                print("Loading best matching shapes:", path)
                 shape = load(path + ".obj")
 
                 shape.flat().lighting('plastic')
@@ -392,161 +396,16 @@ class ShapeComparisonGUI:
                     c='w', 
                     bg='black'
                 ), at=i+1)
+
+            self.plt.show(self.current_shape, at=0, interactive=False)
             
-            self.status_text.text(f"Found {self.K} most similar shapes")
+            # self.status_text.text(f"Found {self.K} most similar shapes")
             print("Shape search completed")
             
         except Exception as e:
             print(f"Error during shape search: {str(e)}")
             self.status_text.text(f"Error during search: {str(e)}")
             messagebox.showerror("Error", f"Search failed: {str(e)}")
-    # def search_similar_shapes(self, obj, ename):
-    #     """Updated search method with distance weighting"""
-    #     if not self.current_shape:
-    #         print("No shape selected")
-    #         self.status_text.text("Please select a shape first")
-    #         messagebox.showwarning("Warning", "Please select a shape first")
-    #         return
-        
-    #     try:
-    #         # Extract features from query shape
-    #         query_features = self.extract_features(self.current_shape)
-            
-    #         # First pass: extract features for all shapes
-    #         database_features = []
-    #         database_paths = []
-            
-    #         for path in self.shapes_dict.keys():
-    #             if path == self.selected_shape_path:
-    #                 continue
-                    
-    #             shape = load(path)
-    #             features = self.extract_features(shape)
-    #             database_features.append(features)
-    #             database_paths.append(path)
-            
-    #         # Compute all pairwise distances to get distance distribution
-    #         all_pairwise_distances = []
-    #         for i in range(len(database_features)):
-    #             for j in range(i + 1, len(database_features)):
-    #                 distances = self.compute_feature_distances(
-    #                     database_features[i],
-    #                     database_features[j]
-    #                 )
-    #                 all_pairwise_distances.append(distances)
-            
-    #         # Compute standardization parameters
-    #         standardization_params = self.standardize_distances(all_pairwise_distances)
-            
-    #         # Compute weighted distances to query shape
-    #         distances = []
-    #         for i, features in enumerate(database_features):
-    #             dist = self.compute_weighted_distance(
-    #                 query_features,
-    #                 features,
-    #                 standardization_params
-    #             )
-    #             distances.append((dist, database_paths[i]))
-            
-    #         # Sort by distance
-    #         distances.sort(key=lambda x: x[0])
-            
-    #         # Display K most similar shapes
-    #         for i in range(min(self.K, len(distances))):
-    #             dist, path = distances[i]
-    #             shape = load(path)
-                
-    #             # Clear and update viewport
-    #             self.plt.clear(at=i+1)
-    #             self.plt.show(shape, at=i+1, interactive=False)
-                
-    #             # Convert standardized distance back to similarity score
-    #             # Note: The distance is now in standard deviations, so we need to
-    #             # transform it to a similarity score between 0 and 100
-    #             similarity = 100 * np.exp(-max(0, dist))  # Exponential decay
-                
-    #             self.plt.add(Text2D(
-    #                 f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}", 
-    #                 pos='top-left', 
-    #                 s=0.8, 
-    #                 c='w', 
-    #                 bg='black'
-    #             ), at=i+1)
-            
-    #         self.status_text.text(f"Found {self.K} most similar shapes")
-    #         print("Shape search completed")
-            
-    #     except Exception as e:
-    #         print(f"Error during shape search: {str(e)}")
-    #         self.status_text.text(f"Error during search: {str(e)}")
-    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
-
-    # def search_similar_shapes(self, obj, ename):
-    #     """Search for similar shapes based on geometric features"""
-    #     if not self.current_shape:
-    #         print("No shape selected")
-    #         self.status_text.text("Please select a shape first")
-    #         messagebox.showwarning("Warning", "Please select a shape first")
-    #         return
-        
-    #     try:
-    #         # Extract features from query shape
-    #         query_features = self.extract_features(self.current_shape)
-            
-    #         # Compute features for all shapes in database and store distances
-    #         distances = []
-    #         all_features = []
-            
-    #         # First pass: extract all features
-    #         for path in self.shapes_dict.keys():
-    #             # Skip if it's the same file as the query
-    #             if path == self.selected_shape_path:
-    #                 print(f"Skipping query shape: {path}")
-    #                 continue
-
-    #             shape = load(path)
-    #             print(f"Extracting features for {path}")
-    #             features = self.extract_features(shape)
-    #             all_features.append(features) 
-            
-    #         # Normalize all features (including query)
-    #         normalized_features = self.normalize_features([query_features] + all_features)
-    #         normalized_query = normalized_features[0]
-    #         normalized_database = normalized_features[1:]
-            
-    #         # Compute distances
-    #         for i, features in enumerate(normalized_database):
-    #             dist = self.compute_euclidean_distance(normalized_query, features)
-    #             distances.append((dist, list(self.shapes_dict.keys())[i]))
-            
-    #         # Sort by distance
-    #         distances.sort(key=lambda x: x[0])
-            
-    #         # Display K most similar shapes
-    #         for i in range(min(self.K, len(distances))):
-    #             dist, path = distances[i]
-    #             shape = load(path)
-                
-    #             # Clear and update viewport
-    #             self.plt.clear(at=i+1)
-    #             self.plt.show(shape, at=i+1, interactive=False)
-                
-    #             # Add distance information
-    #             self.plt.add(Text2D(
-    #                 f"Similarity: {(1 - dist)*100:.1f}%\n{os.path.basename(path)}", 
-    #                 pos='top-left', 
-    #                 s=0.8, 
-    #                 c='w', 
-    #                 bg='black'
-    #             ), at=i+1)
-            
-    #         self.status_text.text(f"Found {self.K} most similar shapes")
-    #         print("Shape search completed")
-            
-    #     except Exception as e:
-    #         print(f"Error during shape search: {str(e)}")
-    #         self.status_text.text(f"Error during search: {str(e)}")
-    #         messagebox.showerror("Error", f"Search failed: {str(e)}")
 
     def load_selected_shape(self, file_path):
         """Load and display the selected shape"""
@@ -558,8 +417,12 @@ class ShapeComparisonGUI:
             self.selected_shape_path = file_path
             self.current_shape = load(file_path)
             
+            self.current_shape.flat().lighting('plastic')
+
             # Clear and update the first viewport
             self.plt.clear(at=0)
+            self.plt.pop(at=0)    # Remove actors from the scene
+            # self.plt.renderer(at=0).RemoveAllViewProps()  # Force remove all VTK props
             self.plt.show(self.current_shape, at=0, interactive=False)
             
             self.status_text.text(f"Selected: {os.path.basename(file_path)}")
@@ -585,19 +448,25 @@ class ShapeComparisonGUI:
             
             # Get global descriptors
             global_features = compute_global_descriptors(fixed_mesh_file)
-            
+            stats_file = "standardization_stats_1.json"  
+            means, stds = load_standardization_stats(stats_file)
+            print(means, stds)
+            global_descriptors = standardize_features(global_features, means, stds)
+            print("standardized global descriptors", global_descriptors)
+
             # Get shape descriptors (local features)
             shape_features = compute_shape_descriptors(mesh_o3d, "temp_output")
             
             # Combine all features into a single vector
             feature_vector = np.array([
-                global_features['Surface Area'],
-                global_features['Compactness'],
-                global_features['Rectangularity'],
-                global_features['Diameter'],
-                global_features['Convexity'],
-                global_features['Eccentricity']
+                global_descriptors['Surface Area'],
+                global_descriptors['Compactness'],
+                global_descriptors['Rectangularity'],
+                global_descriptors['Diameter'],
+                global_descriptors['Convexity'],
+                global_descriptors['Eccentricity']
             ])
+            print('combined features successfully')
             
             # Append histograms from shape descriptors
             for hist in shape_features.values():
@@ -614,18 +483,18 @@ class ShapeComparisonGUI:
             print(f"Error in feature extraction: {str(e)}")
             raise
 
-    def normalize_features(self, features_list):
-        """Normalize features using min-max normalization"""
-        features_array = np.array(features_list)
-        min_vals = np.min(features_array, axis=0)
-        max_vals = np.max(features_array, axis=0)
+    # def normalize_features(self, features_list):
+    #     """Normalize features using min-max normalization"""
+    #     features_array = np.array(features_list)
+    #     min_vals = np.min(features_array, axis=0)
+    #     max_vals = np.max(features_array, axis=0)
         
-        # Avoid division by zero
-        range_vals = max_vals - min_vals
-        range_vals[range_vals == 0] = 1
+    #     # Avoid division by zero
+    #     range_vals = max_vals - min_vals
+    #     range_vals[range_vals == 0] = 1
         
-        normalized_features = (features_array - min_vals) / range_vals
-        return normalized_features
+    #     normalized_features = (features_array - min_vals) / range_vals
+    #     return normalized_features
 
     def compute_euclidean_distance(self, features1, features2):
         """Compute Euclidean distance between two feature vectors"""
