@@ -19,6 +19,10 @@ def preprocess_mesh(mesh_file):
 
     # 修复非流形边
     ms.meshing_repair_non_manifold_edges()
+    # Clean the mesh
+    ms.meshing_remove_duplicate_vertices()
+    ms.meshing_remove_duplicate_faces()
+    ms.meshing_remove_unreferenced_vertices()
 
     # 保存修复后的网格
     fixed_mesh_file = f"{mesh_file.split('.')[0]}_fixed.obj"

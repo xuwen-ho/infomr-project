@@ -39,7 +39,7 @@ class ShapeComparisonGUI:
         # Initialize the plotter with interactive flag
         self.plt = Plotter(
             N=6,  # Two viewports
-            axes=1,
+            axes=2,
             interactive=True,
             size=(1200, 800),  # Larger window size
             bg='black'
@@ -48,7 +48,7 @@ class ShapeComparisonGUI:
         # Add buttons with correct function binding
         select_button = self.plt.add_button(
             fnc=self.show_shape_selector,  # Debug print
-            pos=(0.1, 0.05),
+            pos=(0.2, 0.05),
             states=['Select Shape'],
             c=['w'],
             bc=['dg'],  # dark green
@@ -57,7 +57,7 @@ class ShapeComparisonGUI:
 
         search_button = self.plt.add_button(
             fnc=self.search_similar_shapes,
-            pos=[0.9, 0.05],
+            pos=[0.8, 0.05],
             states=['Search Similar'],
             c=['w'],
             bc=['db'],
@@ -319,17 +319,17 @@ class ShapeComparisonGUI:
                     continue
                     
                 # Calculate weighted distance
-                # global_dist = self.compute_euclidean_distance(
-                #     global_features,
-                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
-                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
-                # )
-                # print('calculating emd distance')
-                global_dist = self.compute_emd_distance(
+                global_dist = self.compute_euclidean_distance(
                     global_features,
                     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
                      row['Diameter'], row['Convexity'], row['Eccentricity']]
                 )
+                # print('calculating emd distance')
+                # global_dist = self.compute_emd_distance(
+                #     global_features,
+                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
+                # )
                 
                 # Calculate histogram distances
                 hist_distances = {}
@@ -341,7 +341,7 @@ class ShapeComparisonGUI:
                 
                 # Apply weights (same as before)
                 weights = {
-                    'global': 0.3,
+                    'global': 0.14,
                     'A3': 0.14,
                     'D1': 0.14,
                     'D2': 0.14,
@@ -399,7 +399,7 @@ class ShapeComparisonGUI:
 
             self.plt.show(self.current_shape, at=0, interactive=False)
             
-            # self.status_text.text(f"Found {self.K} most similar shapes")
+            self.status_text.text(f"Found {self.K} most similar shapes")
             print("Shape search completed")
             
         except Exception as e:
@@ -421,10 +421,17 @@ class ShapeComparisonGUI:
 
             # Clear and update the first viewport
             self.plt.clear(at=0)
-            self.plt.pop(at=0)    # Remove actors from the scene
+            # self.plt.pop(at=0)    # Remove actors from the scene
             # self.plt.renderer(at=0).RemoveAllViewProps()  # Force remove all VTK props
             self.plt.show(self.current_shape, at=0, interactive=False)
             
+            # self.plt.add(Text2D(
+            #         f"Selected: {os.path.basename(file_path)}", 
+            #         pos='top-left', 
+            #         s=0.8, 
+            #         c='w', 
+            #         bg='black'
+            #     ), at=0)
             self.status_text.text(f"Selected: {os.path.basename(file_path)}")
             print("Shape loaded successfully")  # Debug print
         except Exception as e:
