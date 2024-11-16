@@ -1,0 +1,917 @@
+import json
+import os
+import numpy as np
+from vedo import Plotter, load, Text2D, Button
+from pathlib import Path
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+from scipy.spatial import distance
+import math
+import open3d as o3d
+import pymeshlab
+from scipy.stats import wasserstein_distance
+import ast  # Add this import for safely evaluating string representations of lists
+from sklearn.neighbors import NearestNeighbors
+from tkinter.simpledialog import askinteger
+
+# Import functions from feature_extraction.py
+from feature_extraction import (
+    compute_global_descriptors,
+    compute_shape_descriptors,
+    load_standardization_stats,
+    preprocess_mesh,
+    standardize_features
+)
+import pandas as pd
+
+class ShapeComparisonGUI:
+    def __init__(self):
+        print("Initializing ShapeComparisonGUI...")  # Debug print
+        # 创建并隐藏 Tkinter 根窗口
+        self.root = tk.Tk()
+        self.root.withdraw()
+
+        # self.database_path = os.path.join(os.getcwd(), "C:\Users\User\Downloads\Normalized")
+        self.database_path = "Normalized"
+        print(f"Looking for database in: {self.database_path}")  # Debug print
+        self.shapes_dict = {}  # Dictionary to store loaded shapes
+        self.current_shape = None
+        self.selected_shape_path = None
+        self.K = 5 #For custom querying
+        self.K_knn = 6#For KNN querying
+
+        self.features_db = None
+        self.load_precomputed_features()
+
+        # 构建 KNN 索引
+        self.knn_index = self.build_knn_index(self.features_db)
+
+        # Initialize the plotter with interactive flag
+        self.plt = Plotter(
+            N=6,  # Two viewports
+            axes=2,
+            interactive=True,
+            size=(1200, 800),  # Larger window size
+            bg='black'
+        )
+        
+        # Add buttons with correct function binding
+        select_button = self.plt.add_button(
+            fnc=self.show_shape_selector,  # Debug print
+            pos=(0.2, 0.05),
+            states=['Select Shape'],
+            c=['w'],
+            bc=['dg'],  # dark green
+            size=12,
+        )
+
+        search_button = self.plt.add_button(
+            fnc=self.search_similar_shapes,
+            pos=[0.8, 0.05],
+            states=['Search Similar'],
+            c=['w'],
+            bc=['db'],
+            size=12,
+        )
+
+        knn_button = self.plt.add_button(
+            fnc=self.KNN,
+            pos=[0.5, 0.05],
+            states=['KNN Search'],
+            c=['w'],
+            bc=['dr'],
+            size=12,
+        )
+        
+        status = Text2D(
+            "Select a shape to begin",
+            pos='top-middle',
+            s=0.8,
+            c='white',
+        )
+        
+        # Store UI elements as instance variables
+        self.select_btn = select_button
+        self.search_btn = search_button
+        self.knn_btn = knn_button
+        self.status_text = status
+        
+        # Add UI elements to the plotter
+        # self.plt.add([select_button, compare_button, status])
+        self.plt.add([status])
+        print("Adding buttons to plotter...")  # Debug print
+        
+        # Load shapes from database
+        self.load_database()
+
+    def build_knn_index(self, features_db):
+        """构建 KNN 索引，包含全局特征和直方图特征"""
+        try:
+            # 提取全局特征列和直方图列
+            global_features = features_db[
+                ['Surface Area', 'Compactness', 'Rectangularity', 'Diameter', 'Convexity', 'Eccentricity']]
+            hist_columns = ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']
+
+            # 转换直方图列为 numpy array
+            for col in hist_columns:
+                if col not in features_db.columns:
+                    print(f"Column {col} not found in features_db")
+                    continue
+                    # 使用 `eval` 时检查是否为 `numpy array` 格式
+                    features_db[col] = features_db[col].apply(
+                        lambda x: np.array(eval(x)) if isinstance(x, str) and 'array' in x else np.array(x)
+                    )
+
+            # 构建完整的特征向量列表
+            expanded_features = []
+            for _, row in features_db.iterrows():
+                # 获取全局特征
+                global_feat = row[
+                    ['Surface Area', 'Compactness', 'Rectangularity', 'Diameter', 'Convexity', 'Eccentricity']].values
+                # 获取并展平所有直方图特征
+                hist_feat = np.concatenate([row[col] for col in hist_columns if col in row])
+                # 合并全局特征和直方图特征
+                feature_vector = np.concatenate([global_feat, hist_feat])
+                expanded_features.append(feature_vector)
+
+            # 转换为 NumPy 数组
+            feature_array = np.array(expanded_features)
+            print("feature_array")
+            print(feature_array)
+            # 构建 KNN 索引
+            knn = NearestNeighbors(n_neighbors=self.K_knn, metric='euclidean')
+            knn.fit(feature_array)
+            print("KNN 索引构建成功，使用了完整的特征向量（包含直方图特征）")
+            return knn
+
+        except Exception as e:
+            print(f"Error in building KNN index: {str(e)}")
+            raise
+
+    def prompt_for_k_value(self):
+        """弹窗提示用户输入 K 值"""
+        try:
+            K_knn = askinteger("Input K", "Please enter the number of nearest neighbors (K):", parent=self.root, minvalue=1, maxvalue=50)
+            if K_knn is not None:
+                self.K_knn = K_knn
+                print(f"User specified K value: {self.K_knn}")
+                self.status_text.text(f"K value set to: {self.K_knn}")
+            else:
+                print("User cancelled the input.")
+                self.status_text.text("Input cancelled.")
+        except Exception as e:
+            print(f"Error in K value input: {str(e)}")
+            messagebox.showerror("Error", f"Invalid K value input: {str(e)}")
+
+    def load_database(self):
+        """Load all shapes from the database directory"""
+        print("Loading database...")  # Debug print
+        try:
+            for folder in os.listdir(self.database_path):
+                folder_path = os.path.join(self.database_path, folder)
+                if os.path.isdir(folder_path):
+                    for file in os.listdir(folder_path):
+                        if file.endswith(('.obj', '.ply', '.stl')):  # Add more extensions if needed
+                            file_path = os.path.join(folder_path, file)
+                            # Store the full path and category (folder name)
+                            self.shapes_dict[file_path] = {
+                                'category': folder,
+                                'name': file
+                            }
+            
+            print(f"Loaded {len(self.shapes_dict)} shapes")  # Debug print
+            self.status_text.text(f"Loaded {len(self.shapes_dict)} shapes in database")
+        except Exception as e:
+            print(f"Error loading database: {str(e)}")  # Debug print
+            self.status_text.text(f"Error loading database: {str(e)}")
+
+    def show_shape_selector(self, obj, ename):
+        """Create a Tkinter window to select shapes from the database"""
+        print("Opening shape selector window...")  # Debug print
+        # 显示根窗口
+        # self.root.deiconify()
+        # select_window = tk.Toplevel(self.root)
+        select_window = tk.Toplevel()
+        select_window.title("Select Shape")
+        select_window.geometry("400x450")
+
+        # Create a treeview to display shapes organized by category
+        tree = ttk.Treeview(select_window)
+        tree.pack(fill='both', expand=True, padx=5, pady=5)
+
+        # Create scrollbar
+        scrollbar = ttk.Scrollbar(select_window, orient="vertical", command=tree.yview)
+        scrollbar.pack(side='right', fill='y')
+
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        # Configure treeview columns
+        tree["columns"] = ("name")
+        tree.column("#0", width=120, minwidth=120)
+        tree.column("name", width=280, minwidth=280)
+
+        # Configure column headings
+        tree.heading("#0", text="Category")
+        tree.heading("name", text="Shape Name")
+
+        # Organize shapes by category
+        categories = {}
+        for path, info in self.shapes_dict.items():
+            category = info['category']
+            if category not in categories:
+                categories[category] = []
+            categories[category].append((path, info['name']))
+
+        # Populate the treeview
+        for category, shapes in categories.items():
+            category_id = tree.insert("", "end", text=category)
+            for path, name in shapes:
+                tree.insert(category_id, "end", values=(name,), tags=(path,))
+
+        # Bind selection event
+        def on_select(event):
+            print("Shape selected in tree view")  # Debug print
+            selected_items = tree.selection()
+            if selected_items:
+                item = selected_items[0]
+                if tree.item(item)['values']:  # Check if it's a shape and not a category
+                    file_path = tree.item(item)['tags'][0]
+                    self.load_selected_shape(file_path)
+                    select_window.destroy()
+
+
+        tree.bind('<<TreeviewSelect>>', on_select)
+
+        # Add a close button
+        close_btn = ttk.Button(
+            select_window,
+            text="Close",
+            command=lambda: [select_window.destroy(), root.destroy()]
+        )
+        close_btn.pack(pady=5)
+
+        # # Start the Tkinter main loop
+        # root.withdraw()  # Hide the root window
+        # root.mainloop()
+        # 显示选择窗口
+        select_window.transient()
+        select_window.grab_set()
+        select_window.mainloop()
+
+    def compute_feature_distances(self, features1, features2):
+        """
+        Compute distances between different feature types separately
+        Returns distances for global features and each histogram separately
+        """
+        # Define indices for different feature types based on the feature vector structure
+        GLOBAL_FEATURES_END = 6  # First 6 are global features
+        HIST_SIZE = 100  # Size of each histogram
+        
+        # Extract global features
+        global_feat1 = features1[:GLOBAL_FEATURES_END]
+        global_feat2 = features2[:GLOBAL_FEATURES_END]
+        
+        # Initialize distances dictionary
+        distances = {
+            'global': self.compute_euclidean_distance(global_feat1, global_feat2),
+            'A3': 0.0,
+            'D1': 0.0,
+            'D2': 0.0,
+            'D3': 0.0,
+            'D4': 0.0
+        }
+        
+        # Compute histogram distances
+        start_idx = GLOBAL_FEATURES_END
+        for hist_name in ['A3', 'D1', 'D2', 'D3', 'D4']:
+            end_idx = start_idx + HIST_SIZE
+            hist1 = features1[start_idx:end_idx]
+            hist2 = features2[start_idx:end_idx]
+            distances[hist_name] = self.compute_emd_distance(hist1, hist2)
+            start_idx = end_idx
+            
+        return distances
+
+    def standardize_distances(self, all_pairwise_distances):
+        """
+        Standardize distances for each feature type based on the distribution
+        of distances in the database
+        """
+        standardized = {}
+        
+        # For each feature type
+        for feat_type in all_pairwise_distances[0].keys():
+            # Get all distances for this feature type
+            distances = [d[feat_type] for d in all_pairwise_distances]
+            
+            # Compute mean and standard deviation
+            mean_dist = np.mean(distances)
+            std_dist = np.std(distances)
+            
+            if std_dist == 0:
+                print(f"Warning: Zero standard deviation for {feat_type} distances")
+                std_dist = 1.0
+                
+            # Store standardization parameters
+            standardized[feat_type] = {
+                'mean': mean_dist,
+                'std': std_dist
+            }
+            
+        return standardized
+
+    def compute_weighted_distance(self, features1, features2, standardization_params):
+        """
+        Compute weighted distance between two feature vectors
+        """
+        # Compute distances for each feature type
+        distances = self.compute_feature_distances(features1, features2)
+        
+        # Standardize each distance
+        weighted_distances = {}
+        for feat_type, dist in distances.items():
+            mean = standardization_params[feat_type]['mean']
+            std = standardization_params[feat_type]['std']
+            weighted_distances[feat_type] = (dist - mean) / std
+        
+        # Combine standardized distances
+        # You can adjust these weights based on the importance of each feature type
+        weights = {
+            'global': 0.3,  # Global features
+            'A3': 0.14,     # Angle histogram
+            'D1': 0.14,     # Distance to center histogram
+            'D2': 0.14,     # Distance between vertices histogram
+            'D3': 0.14,     # Triangle area histogram
+            'D4': 0.14      # Tetrahedron volume histogram
+        }
+        
+        total_distance = sum(
+            weights[feat_type] * weighted_distances[feat_type]
+            for feat_type in weighted_distances
+        )
+        
+        return total_distance
+
+    # Add method to load pre-computed features
+    def load_precomputed_features(self):
+        """Load pre-computed features from CSV file"""
+        try:
+            self.features_db = pd.read_csv("shape_features_1.csv")
+            # Convert string representations of histograms back to numpy arrays
+            hist_columns = ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']
+            for col in hist_columns:
+                self.features_db[col] = self.features_db[col].apply(
+                    lambda x: np.array(ast.literal_eval(x))
+                )
+            print(f"Loaded {len(self.features_db)} pre-computed feature vectors")
+            print(self.features_db)
+        except Exception as e:
+            print(f"Error loading pre-computed features: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load feature database: {str(e)}")
+
+    # Update search method to use pre-computed features
+    def search_similar_shapes(self, obj, ename):
+        """Search using pre-computed features from CSV"""
+        if not self.current_shape:
+            print("No shape selected")
+            self.status_text.text("Please select a shape first")
+            messagebox.showwarning("Warning", "Please select a shape first")
+            return
+
+        try:
+            # Extract features from query shape only
+            query_features = self.extract_features(self.current_shape)
+
+            # Convert query features to same format as database
+            global_features = query_features[:6]
+            hist_features = query_features[6:]
+
+            # Split histograms
+            hist_size = 100
+            query_hists = {
+                'A3_hist': hist_features[:hist_size],
+                'D1_hist': hist_features[hist_size:2*hist_size],
+                'D2_hist': hist_features[2*hist_size:3*hist_size],
+                'D3_hist': hist_features[3*hist_size:4*hist_size],
+                'D4_hist': hist_features[4*hist_size:5*hist_size]
+            }
+
+            # Calculate distances to all shapes in database
+            distances = []
+            for idx, row in self.features_db.iterrows():
+                if os.path.basename(self.selected_shape_path) == row['Shape Name']:
+                    continue
+
+                # Calculate distances for global features individually
+                global_distances = {
+                    'Surface Area': self.compute_euclidean_distance(
+                        [global_features[0]],
+                        [row['Surface Area']]
+                    ),
+                    'Compactness': self.compute_euclidean_distance(
+                        [global_features[1]],
+                        [row['Compactness']]
+                    ),
+                    'Rectangularity': self.compute_euclidean_distance(
+                        [global_features[2]],
+                        [row['Rectangularity']]
+                    ),
+                    'Diameter': self.compute_euclidean_distance(
+                        [global_features[3]],
+                        [row['Diameter']]
+                    ),
+                    'Convexity': self.compute_euclidean_distance(
+                        [global_features[4]],
+                        [row['Convexity']]
+                    ),
+                    'Eccentricity': self.compute_euclidean_distance(
+                        [global_features[5]],
+                        [row['Eccentricity']]
+                    )
+                }
+                # Calculate weighted distance
+                # global_dist = self.compute_euclidean_distance(
+                #     global_features,
+                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
+                # )
+                # print('calculating emd distance')
+                # global_dist = self.compute_emd_distance(
+                #     global_features,
+                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
+                # )
+
+                # Calculate histogram distances
+                hist_distances = {}
+                for hist_name in ['A3_hist', 'D1_hist', 'D2_hist', 'D3_hist', 'D4_hist']:
+                    hist_distances[hist_name] = self.compute_emd_distance(
+                        query_hists[hist_name],
+                        row[hist_name]
+                    )
+
+                weights = json.load(open('feature_weights.json'))
+
+                # Apply weights (same as before)
+                # weights = {
+                #     'global': 0.14,
+                #     'A3': 0.14,
+                #     'D1': 0.14,
+                #     'D2': 0.14,
+                #     'D3': 0.14,
+                #     'D4': 0.14
+                # }
+
+                total_distance = (
+                    weights['Surface Area'] * global_distances['Surface Area'] +
+                    weights['Compactness'] * global_distances['Compactness'] +
+                    weights['Rectangularity'] * global_distances['Rectangularity'] +
+                    weights['Diameter'] * global_distances['Diameter'] +
+                    weights['Convexity'] * global_distances['Convexity'] +
+                    weights['Eccentricity'] * global_distances['Eccentricity'] +
+                    weights['A3_hist'] * hist_distances['A3_hist'] +
+                    weights['D1_hist'] * hist_distances['D1_hist'] +
+                    weights['D2_hist'] * hist_distances['D2_hist'] +
+                    weights['D3_hist'] * hist_distances['D3_hist'] +
+                    weights['D4_hist'] * hist_distances['D4_hist']
+                )
+
+                # Find the corresponding file path
+                shape_path = os.path.join(
+                    self.database_path,
+                    row['Class'],
+                    row['Shape Name']
+                )
+                distances.append((total_distance, shape_path))
+
+            # Sort and display results
+            distances.sort(key=lambda x: x[0])
+
+            # Clear all viewports except the first one (query shape)
+            for i in range(1, 6):  # Clear viewports 1-
+                print("clear previous")
+                self.plt.clear(at=i)
+                # self.plt.remove(at=i)  # This ensures complete clearing of previous results
+
+            # Display K most similar shapes
+            for i in range(min(self.K, len(distances))):
+                dist, path = distances[i]
+                print("Loading best matching shapes:", path)
+                shape = load(path + ".obj")
+
+                shape.flat().lighting('plastic')
+
+                # Clear and update viewport
+                # self.plt.clear(at=i+1)
+                self.plt.show(shape, at=i+1, interactive=False)
+
+                similarity = 100 * np.exp(-max(0, dist))
+
+                self.plt.add(Text2D(
+                    f"Similarity: {similarity:.1f}%\n{os.path.basename(path)}",
+                    pos='top-left',
+                    s=0.8,
+                    c='w',
+                    bg='black'
+                ), at=i+1)
+
+            self.plt.show(self.current_shape, at=0, interactive=False)
+
+            self.status_text.text(f"Found {self.K} most similar shapes")
+            print("Shape search completed")
+
+        except Exception as e:
+            print(f"Error during shape search: {str(e)}")
+            self.status_text.text(f"Error during search: {str(e)}")
+            messagebox.showerror("Error", f"Search failed: {str(e)}")
+
+    def load_selected_shape(self, file_path):
+        """Load and display the selected shape"""
+
+        # file_path = self.database_path
+        print(f"Loading shape: {file_path}")  # Debug print
+        try:
+            # Load and display the selected shape
+            self.selected_shape_path = file_path
+            self.current_shape = load(file_path)
+            
+            self.current_shape.flat().lighting('plastic')
+
+            # Clear and update the first viewport
+            self.plt.clear(at=0)
+            # self.plt.pop(at=0)    # Remove actors from the scene
+            # self.plt.renderer(at=0).RemoveAllViewProps()  # Force remove all VTK props
+            self.plt.show(self.current_shape, at=0, interactive=False)
+            
+            # self.plt.add(Text2D(
+            #         f"Selected: {os.path.basename(file_path)}", 
+            #         pos='top-left', 
+            #         s=0.8, 
+            #         c='w', 
+            #         bg='black'
+            #     ), at=0)
+            self.status_text.text(f"Selected: {os.path.basename(file_path)}")
+            print("Shape loaded successfully")  # Debug print
+        except Exception as e:
+            print(f"Error loading shape: {str(e)}")  # Debug print
+            self.status_text.text(f"Error loading shape: {str(e)}")
+            messagebox.showerror("Error", f"Failed to load shape: {str(e)}")
+
+    def extract_features(self, mesh):
+        """Extract geometric features from a mesh"""
+        try:
+            # Save the mesh temporarily to use with feature extraction functions
+            temp_file = "temp_mesh.obj"
+            mesh.write(temp_file)
+            
+            # Preprocess the mesh
+            fixed_mesh_file = preprocess_mesh(temp_file)
+            
+            # Load with Open3D for shape descriptors
+            mesh_o3d = o3d.io.read_triangle_mesh(fixed_mesh_file)
+            mesh_o3d.compute_vertex_normals()
+            
+            # Get global descriptors
+            global_features = compute_global_descriptors(fixed_mesh_file)
+            stats_file = "standardization_stats_1.json"  
+            means, stds = load_standardization_stats(stats_file)
+            print(means, stds)
+            global_descriptors = standardize_features(global_features, means, stds)
+            print("standardized global descriptors", global_descriptors)
+
+            # Get shape descriptors (local features)
+            shape_features = compute_shape_descriptors(mesh_o3d, "temp_output")
+            
+            # Combine all features into a single vector
+            feature_vector = np.array([
+                global_descriptors['Surface Area'],
+                global_descriptors['Compactness'],
+                global_descriptors['Rectangularity'],
+                global_descriptors['Diameter'],
+                global_descriptors['Convexity'],
+                global_descriptors['Eccentricity']
+            ])
+            print('combined features successfully')
+            
+            # Append histograms from shape descriptors
+            for hist in shape_features.values():
+                feature_vector = np.concatenate([feature_vector, hist])
+            
+            # Clean up temporary files
+            os.remove(temp_file)
+            if os.path.exists(fixed_mesh_file):
+                os.remove(fixed_mesh_file)
+                
+            return feature_vector
+            
+        except Exception as e:
+            print(f"Error in feature extraction: {str(e)}")
+            raise
+
+    # def normalize_features(self, features_list):
+    #     """Normalize features using min-max normalization"""
+    #     features_array = np.array(features_list)
+    #     min_vals = np.min(features_array, axis=0)
+    #     max_vals = np.max(features_array, axis=0)
+        
+    #     # Avoid division by zero
+    #     range_vals = max_vals - min_vals
+    #     range_vals[range_vals == 0] = 1
+        
+    #     normalized_features = (features_array - min_vals) / range_vals
+    #     return normalized_features
+
+    def compute_euclidean_distance(self, features1, features2):
+        """Compute Euclidean distance between two feature vectors"""
+        return distance.euclidean(features1, features2)
+
+    def compute_manhattan_distance(self, features1, features2):
+        """Compute Manhattan (L1) distance between two feature vectors"""
+        return distance.cityblock(features1, features2)
+
+    def compute_emd_distance(self, features1, features2):
+        """
+        Compute Earth Mover's Distance (Wasserstein distance) between feature vectors
+        Note: This is particularly useful for comparing histograms in the feature vectors
+        """
+        # Ensure the features are properly normalized for EMD
+        f1_norm = features1 / np.sum(features1)
+        f2_norm = features2 / np.sum(features2)
+        return wasserstein_distance(f1_norm, f2_norm)
+
+    def KNN(self, obj, ename):
+
+        """使用 KNN 搜索最相似的形状，并根据用户指定的 K 值"""
+        if not self.current_shape:
+            print("No shape selected")
+            self.status_text.text("Please select a shape first")
+            messagebox.showwarning("Warning", "Please select a shape first")
+            return
+
+        # 提示用户输入 K 值
+        self.prompt_for_k_value()
+
+        try:
+            # 提取查询模型特征
+            query_features = self.extract_features(self.current_shape)
+
+            # 使用 KNN 查询前 K 个最近邻
+            distances, indices = self.knn_index.kneighbors([query_features], n_neighbors=self.K_knn)
+
+            # 清空视图并展示结果
+            for i in range(1, 6):
+                self.plt.clear(at=i)
+
+            # 显示前 K 个最相似的形状
+            for i in range(self.K):
+                dist = distances[0][i+1]
+                idx = indices[0][i+1]
+                row = self.features_db.iloc[idx]
+                shape_path = os.path.join(self.database_path, row['Class'], row['Shape Name'])
+                print("Loading best matching shape:", shape_path)
+                shape = load(shape_path + ".obj")
+                shape.flat().lighting('plastic')
+
+                # 显示相似度
+                similarity = 100 * np.exp(-max(0, dist))
+                self.plt.show(shape, at=i + 1, interactive=False)
+                self.plt.add(
+                    Text2D(f"Similarity: {similarity:.1f}%\n{os.path.basename(shape_path)}", pos='top-left', s=0.8,
+                           c='w', bg='black'), at=i + 1)
+
+            self.plt.show(self.current_shape, at=0, interactive=False)
+            # self.plt.add(
+            #     Text2D(f"Found and displayed top {self.K} similar shapes \nfor {os.path.basename(self.selected_shape_path)[:-4]}", pos='top-left', s=0.8,
+            #            c='w', bg='black'), at=0)
+            self.status_text.text(f"Found and displayed top {self.K} similar shapes \nfor {os.path.basename(self.selected_shape_path)[:-4]}")
+            print("KNN shape search completed")
+
+        except Exception as e:
+            print(f"Error during shape search: {str(e)}")
+            self.status_text.text(f"Error during search: {str(e)}")
+            messagebox.showerror("Error", f"Search failed: {str(e)}")
+
+
+    def run(self):
+        """Start the GUI"""
+        print("Starting GUI...")
+        self.plt.show(interactive=True)
+
+    def evaluate_retrieval_accuracy(self, K=5):
+        """
+        Evaluate the accuracy of the shape retrieval system.
+        """
+        try:
+            print("\nStarting evaluation...")
+            
+            # Initialize metrics storage
+            class_metrics = {}
+            total_correct = 0
+            total_queries = 0
+            
+            # Iterate through each shape in the database as a query
+            for idx, row in self.features_db.iterrows():
+                query_class = row['Class']
+                query_path = os.path.join(self.database_path, row['Class'], row['Shape Name'])
+                
+                # Initialize class metrics if not already present
+                if query_class not in class_metrics:
+                    class_metrics[query_class] = {
+                        'correct_retrievals': 0,
+                        'total_queries': 0,
+                        'total_retrievals': 0
+                    }
+                
+                print(f"\rProcessing query {idx + 1}/{len(self.features_db)}", end='')
+                
+                # Calculate distances to all shapes in database
+                distances = []
+                for other_idx, other_row in self.features_db.iterrows():
+                    if row['Shape Name'] == other_row['Shape Name']:
+                        continue
+                    
+                    # Calculate distances for global features individually
+                    global_distances = {
+                        'Surface Area': self.compute_euclidean_distance(
+                            [row['Surface Area']], 
+                            [other_row['Surface Area']]
+                        ),
+                        'Compactness': self.compute_euclidean_distance(
+                            [row['Compactness']], 
+                            [other_row['Compactness']]
+                        ),
+                        'Rectangularity': self.compute_euclidean_distance(
+                            [row['Rectangularity']], 
+                            [other_row['Rectangularity']]
+                        ),
+                        'Diameter': self.compute_euclidean_distance(
+                            [row['Diameter']], 
+                            [other_row['Diameter']]
+                        ),
+                        'Convexity': self.compute_euclidean_distance(
+                            [row['Convexity']], 
+                            [other_row['Convexity']]
+                        ),
+                        'Eccentricity': self.compute_euclidean_distance(
+                            [row['Eccentricity']], 
+                            [other_row['Eccentricity']]
+                        )
+                    }
+                    
+                    # Calculate histogram distances
+                    hist_distances = {
+                        'A3_hist': self.compute_emd_distance(row['A3_hist'], other_row['A3_hist']),
+                        'D1_hist': self.compute_emd_distance(row['D1_hist'], other_row['D1_hist']),
+                        'D2_hist': self.compute_emd_distance(row['D2_hist'], other_row['D2_hist']),
+                        'D3_hist': self.compute_emd_distance(row['D3_hist'], other_row['D3_hist']),
+                        'D4_hist': self.compute_emd_distance(row['D4_hist'], other_row['D4_hist'])
+                    }
+
+                    # Load weights from file
+                    weights = json.load(open('feature_weights.json'))
+                    
+                    # Calculate total distance
+                    total_distance = (
+                        weights['Surface Area'] * global_distances['Surface Area'] +
+                        weights['Compactness'] * global_distances['Compactness'] + 
+                        weights['Rectangularity'] * global_distances['Rectangularity'] +
+                        weights['Diameter'] * global_distances['Diameter'] + 
+                        weights['Convexity'] * global_distances['Convexity'] + 
+                        weights['Eccentricity'] * global_distances['Eccentricity'] +
+                        weights['A3_hist'] * hist_distances['A3_hist'] +
+                        weights['D1_hist'] * hist_distances['D1_hist'] +
+                        weights['D2_hist'] * hist_distances['D2_hist'] +
+                        weights['D3_hist'] * hist_distances['D3_hist'] +
+                        weights['D4_hist'] * hist_distances['D4_hist']
+                    )
+                    
+                    distances.append((total_distance, other_row['Class']))
+                
+                # Sort by distance and get top K results
+                distances.sort(key=lambda x: x[0])
+                top_k_results = distances[:K]
+                
+                # Count correct retrievals (same class as query)
+                correct_retrievals = sum(1 for _, result_class in top_k_results 
+                                    if result_class == query_class)
+                
+                # Update metrics
+                class_metrics[query_class]['correct_retrievals'] += correct_retrievals
+                class_metrics[query_class]['total_queries'] += 1
+                class_metrics[query_class]['total_retrievals'] += K
+                
+                total_correct += correct_retrievals
+                total_queries += 1
+            
+            print("\nComputing final metrics...")
+            
+            # Calculate final metrics
+            results = {
+                'overall_accuracy': total_correct / (total_queries * K),
+                'class_accuracy': {},
+                'per_class_metrics': {}
+            }
+            
+            # Calculate per-class metrics
+            for class_name, metrics in class_metrics.items():
+                class_accuracy = metrics['correct_retrievals'] / metrics['total_retrievals']
+                precision = metrics['correct_retrievals'] / metrics['total_retrievals']
+                recall = metrics['correct_retrievals'] / (metrics['total_queries'] * K)
+                
+                results['class_accuracy'][class_name] = class_accuracy
+                results['per_class_metrics'][class_name] = {
+                    'precision': precision,
+                    'recall': recall,
+                    'f1_score': 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
+                }
+            
+            # Print results
+            print("\nRetrieval System Evaluation Results:")
+            print(f"Overall Accuracy: {results['overall_accuracy']:.3f}")
+            print("\nPer-Class Results:")
+            for class_name in results['class_accuracy']:
+                print(f"\n{class_name}:")
+                print(f"  Accuracy: {results['class_accuracy'][class_name]:.3f}")
+                print(f"  Precision: {results['per_class_metrics'][class_name]['precision']:.3f}")
+                print(f"  Recall: {results['per_class_metrics'][class_name]['recall']:.3f}")
+                print(f"  F1 Score: {results['per_class_metrics'][class_name]['f1_score']:.3f}")
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error during evaluation: {str(e)}")
+            return None
+
+    def visualize_evaluation_results(self, results):
+        """
+        Create visualizations for the evaluation results
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            
+            print("\nCreating visualizations...")
+            
+            # Create bar plot for class accuracies
+            plt.figure(figsize=(15,8))
+            classes = list(results['class_accuracy'].keys())
+            accuracies = list(results['class_accuracy'].values())
+            
+            plt.bar(classes, accuracies)
+            plt.title('Retrieval Accuracy by Class')
+            plt.xlabel('Class')
+            plt.ylabel('Accuracy')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+
+            # Fix overlapping labels by rotating and adjusting layout
+            plt.xticks(rotation=45, ha='right')  # Rotate labels and align them right
+            plt.subplots_adjust(bottom=0.2)  # Add more space at the bottom
+            
+            # Save the plot
+            plt.savefig('retrieval_accuracy.png')
+            plt.close()
+            
+            # Create confusion matrix-style visualization
+            confusion_data = []
+            for class_name, metrics in results['per_class_metrics'].items():
+                confusion_data.append([
+                    metrics['precision'],
+                    metrics['recall'],
+                    metrics['f1_score']
+                ])
+                
+            confusion_data = np.array(confusion_data)
+            
+            plt.figure(figsize=(12, 10))  # Increased figure size
+            plt.imshow(confusion_data, cmap='YlOrRd', aspect='auto')
+            plt.colorbar()
+            
+            plt.xticks(range(3), ['Precision', 'Recall', 'F1'])
+            plt.yticks(range(len(classes)), classes)
+            
+            plt.title('Performance Metrics by Class')
+            plt.tight_layout()
+            
+            # Save the plot
+            plt.savefig('performance_metrics.png')
+            plt.close()
+            
+            print("Visualizations saved as 'retrieval_accuracy.png' and 'performance_metrics.png'")
+            
+        except Exception as e:
+            print(f"Error creating visualization: {str(e)}")
+
+if __name__ == "__main__":
+    print("Creating application instance...")  # Debug print
+    app = ShapeComparisonGUI()
+    # print("Running application...")  # Debug print
+    # app.run()
+    # Run evaluation before showing the GUI
+    print("\nRunning system evaluation...")
+    results = app.evaluate_retrieval_accuracy(K=5)
+    app.visualize_evaluation_results(results)
+    
+    print("\nStarting GUI...")
+    app.run()

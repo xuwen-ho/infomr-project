@@ -10,3 +10,5 @@ This repository is a Multimedia Retrieval Pipeline that is based on a Python env
    - On MacOS: `source venv/bin/activate`
    - On Windows: `venv\Scripts\activate`
 4. Install dependencies: `pip install -r requirements.txt`
+5. Run gui.py
+6. Click on 'Select Shape' button to select a query shape from the database, before searching for a similar shape using the 'Search Similar' or 'KNN Search' button

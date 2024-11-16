@@ -1,3 +1,4 @@
+import json
 import os
 import numpy as np
 from vedo import Plotter, load, Text2D, Button
@@ -318,12 +319,39 @@ class ShapeComparisonGUI:
                 if os.path.basename(self.selected_shape_path) == row['Shape Name']:
                     continue
                     
+                # Calculate distances for global features individually
+                global_distances = {
+                    'Surface Area': self.compute_euclidean_distance(
+                        [global_features[0]], 
+                        [row['Surface Area']]
+                    ),
+                    'Compactness': self.compute_euclidean_distance(
+                        [global_features[1]], 
+                        [row['Compactness']]
+                    ),
+                    'Rectangularity': self.compute_euclidean_distance(
+                        [global_features[2]], 
+                        [row['Rectangularity']]
+                    ),
+                    'Diameter': self.compute_euclidean_distance(
+                        [global_features[3]], 
+                        [row['Diameter']]
+                    ),
+                    'Convexity': self.compute_euclidean_distance(
+                        [global_features[4]], 
+                        [row['Convexity']]
+                    ),
+                    'Eccentricity': self.compute_euclidean_distance(
+                        [global_features[5]], 
+                        [row['Eccentricity']]
+                    )
+                }    
                 # Calculate weighted distance
-                global_dist = self.compute_euclidean_distance(
-                    global_features,
-                    [row['Surface Area'], row['Compactness'], row['Rectangularity'],
-                     row['Diameter'], row['Convexity'], row['Eccentricity']]
-                )
+                # global_dist = self.compute_euclidean_distance(
+                #     global_features,
+                #     [row['Surface Area'], row['Compactness'], row['Rectangularity'],
+                #      row['Diameter'], row['Convexity'], row['Eccentricity']]
+                # )
                 # print('calculating emd distance')
                 # global_dist = self.compute_emd_distance(
                 #     global_features,
@@ -338,24 +366,31 @@ class ShapeComparisonGUI:
                         query_hists[hist_name],
                         row[hist_name]
                     )
+
+                weights = json.load(open('feature_weights.json'))
                 
                 # Apply weights (same as before)
-                weights = {
-                    'global': 0.14,
-                    'A3': 0.14,
-                    'D1': 0.14,
-                    'D2': 0.14,
-                    'D3': 0.14,
-                    'D4': 0.14
-                }
+                # weights = {
+                #     'global': 0.14,
+                #     'A3': 0.14,
+                #     'D1': 0.14,
+                #     'D2': 0.14,
+                #     'D3': 0.14,
+                #     'D4': 0.14
+                # }
                 
                 total_distance = (
-                    weights['global'] * global_dist +
-                    weights['A3'] * hist_distances['A3_hist'] +
-                    weights['D1'] * hist_distances['D1_hist'] +
-                    weights['D2'] * hist_distances['D2_hist'] +
-                    weights['D3'] * hist_distances['D3_hist'] +
-                    weights['D4'] * hist_distances['D4_hist']
+                    weights['Surface Area'] * global_distances['Surface Area'] +
+                    weights['Compactness'] * global_distances['Compactness'] + 
+                    weights['Rectangularity'] * global_distances['Rectangularity'] +
+                    weights['Diameter'] * global_distances['Diameter'] + 
+                    weights['Convexity'] * global_distances['Convexity'] + 
+                    weights['Eccentricity'] * global_distances['Eccentricity'] +
+                    weights['A3_hist'] * hist_distances['A3_hist'] +
+                    weights['D1_hist'] * hist_distances['D1_hist'] +
+                    weights['D2_hist'] * hist_distances['D2_hist'] +
+                    weights['D3_hist'] * hist_distances['D3_hist'] +
+                    weights['D4_hist'] * hist_distances['D4_hist']
                 )
                 
                 # Find the corresponding file path
@@ -526,8 +561,220 @@ class ShapeComparisonGUI:
       print("Starting GUI...")
       self.plt.show(interactive=True)
 
+    def evaluate_retrieval_accuracy(self, K=5):
+        """
+        Evaluate the accuracy of the shape retrieval system.
+        """
+        try:
+            print("\nStarting evaluation...")
+            
+            # Initialize metrics storage
+            class_metrics = {}
+            total_correct = 0
+            total_queries = 0
+            
+            # Iterate through each shape in the database as a query
+            for idx, row in self.features_db.iterrows():
+                query_class = row['Class']
+                query_path = os.path.join(self.database_path, row['Class'], row['Shape Name'])
+                
+                # Initialize class metrics if not already present
+                if query_class not in class_metrics:
+                    class_metrics[query_class] = {
+                        'correct_retrievals': 0,
+                        'total_queries': 0,
+                        'total_retrievals': 0
+                    }
+                
+                print(f"\rProcessing query {idx + 1}/{len(self.features_db)}", end='')
+                
+                # Calculate distances to all shapes in database
+                distances = []
+                for other_idx, other_row in self.features_db.iterrows():
+                    if row['Shape Name'] == other_row['Shape Name']:
+                        continue
+                    
+                    # Calculate distances for global features individually
+                    global_distances = {
+                        'Surface Area': self.compute_euclidean_distance(
+                            [row['Surface Area']], 
+                            [other_row['Surface Area']]
+                        ),
+                        'Compactness': self.compute_euclidean_distance(
+                            [row['Compactness']], 
+                            [other_row['Compactness']]
+                        ),
+                        'Rectangularity': self.compute_euclidean_distance(
+                            [row['Rectangularity']], 
+                            [other_row['Rectangularity']]
+                        ),
+                        'Diameter': self.compute_euclidean_distance(
+                            [row['Diameter']], 
+                            [other_row['Diameter']]
+                        ),
+                        'Convexity': self.compute_euclidean_distance(
+                            [row['Convexity']], 
+                            [other_row['Convexity']]
+                        ),
+                        'Eccentricity': self.compute_euclidean_distance(
+                            [row['Eccentricity']], 
+                            [other_row['Eccentricity']]
+                        )
+                    }
+                    
+                    # Calculate histogram distances
+                    hist_distances = {
+                        'A3_hist': self.compute_emd_distance(row['A3_hist'], other_row['A3_hist']),
+                        'D1_hist': self.compute_emd_distance(row['D1_hist'], other_row['D1_hist']),
+                        'D2_hist': self.compute_emd_distance(row['D2_hist'], other_row['D2_hist']),
+                        'D3_hist': self.compute_emd_distance(row['D3_hist'], other_row['D3_hist']),
+                        'D4_hist': self.compute_emd_distance(row['D4_hist'], other_row['D4_hist'])
+                    }
+
+                    # Load weights from file
+                    weights = json.load(open('feature_weights.json'))
+                    
+                    # Calculate total distance
+                    total_distance = (
+                        weights['Surface Area'] * global_distances['Surface Area'] +
+                        weights['Compactness'] * global_distances['Compactness'] + 
+                        weights['Rectangularity'] * global_distances['Rectangularity'] +
+                        weights['Diameter'] * global_distances['Diameter'] + 
+                        weights['Convexity'] * global_distances['Convexity'] + 
+                        weights['Eccentricity'] * global_distances['Eccentricity'] +
+                        weights['A3_hist'] * hist_distances['A3_hist'] +
+                        weights['D1_hist'] * hist_distances['D1_hist'] +
+                        weights['D2_hist'] * hist_distances['D2_hist'] +
+                        weights['D3_hist'] * hist_distances['D3_hist'] +
+                        weights['D4_hist'] * hist_distances['D4_hist']
+                    )
+                    
+                    distances.append((total_distance, other_row['Class']))
+                
+                # Sort by distance and get top K results
+                distances.sort(key=lambda x: x[0])
+                top_k_results = distances[:K]
+                
+                # Count correct retrievals (same class as query)
+                correct_retrievals = sum(1 for _, result_class in top_k_results 
+                                    if result_class == query_class)
+                
+                # Update metrics
+                class_metrics[query_class]['correct_retrievals'] += correct_retrievals
+                class_metrics[query_class]['total_queries'] += 1
+                class_metrics[query_class]['total_retrievals'] += K
+                
+                total_correct += correct_retrievals
+                total_queries += 1
+            
+            print("\nComputing final metrics...")
+            
+            # Calculate final metrics
+            results = {
+                'overall_accuracy': total_correct / (total_queries * K),
+                'class_accuracy': {},
+                'per_class_metrics': {}
+            }
+            
+            # Calculate per-class metrics
+            for class_name, metrics in class_metrics.items():
+                class_accuracy = metrics['correct_retrievals'] / metrics['total_retrievals']
+                precision = metrics['correct_retrievals'] / metrics['total_retrievals']
+                recall = metrics['correct_retrievals'] / (metrics['total_queries'] * K)
+                
+                results['class_accuracy'][class_name] = class_accuracy
+                results['per_class_metrics'][class_name] = {
+                    'precision': precision,
+                    'recall': recall,
+                    'f1_score': 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
+                }
+            
+            # Print results
+            print("\nRetrieval System Evaluation Results:")
+            print(f"Overall Accuracy: {results['overall_accuracy']:.3f}")
+            print("\nPer-Class Results:")
+            for class_name in results['class_accuracy']:
+                print(f"\n{class_name}:")
+                print(f"  Accuracy: {results['class_accuracy'][class_name]:.3f}")
+                print(f"  Precision: {results['per_class_metrics'][class_name]['precision']:.3f}")
+                print(f"  Recall: {results['per_class_metrics'][class_name]['recall']:.3f}")
+                print(f"  F1 Score: {results['per_class_metrics'][class_name]['f1_score']:.3f}")
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error during evaluation: {str(e)}")
+            return None
+
+    def visualize_evaluation_results(self, results):
+        """
+        Create visualizations for the evaluation results
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+            
+            print("\nCreating visualizations...")
+            
+            # Create bar plot for class accuracies
+            plt.figure(figsize=(15,8))
+            classes = list(results['class_accuracy'].keys())
+            accuracies = list(results['class_accuracy'].values())
+            
+            plt.bar(classes, accuracies)
+            plt.title('Retrieval Accuracy by Class')
+            plt.xlabel('Class')
+            plt.ylabel('Accuracy')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+
+            # Fix overlapping labels by rotating and adjusting layout
+            plt.xticks(rotation=45, ha='right')  # Rotate labels and align them right
+            plt.subplots_adjust(bottom=0.2)  # Add more space at the bottom
+            
+            # Save the plot
+            plt.savefig('retrieval_accuracy.png')
+            plt.close()
+            
+            # Create confusion matrix-style visualization
+            confusion_data = []
+            for class_name, metrics in results['per_class_metrics'].items():
+                confusion_data.append([
+                    metrics['precision'],
+                    metrics['recall'],
+                    metrics['f1_score']
+                ])
+                
+            confusion_data = np.array(confusion_data)
+            
+            plt.figure(figsize=(12, 10))  # Increased figure size
+            plt.imshow(confusion_data, cmap='YlOrRd', aspect='auto')
+            plt.colorbar()
+            
+            plt.xticks(range(3), ['Precision', 'Recall', 'F1'])
+            plt.yticks(range(len(classes)), classes)
+            
+            plt.title('Performance Metrics by Class')
+            plt.tight_layout()
+            
+            # Save the plot
+            plt.savefig('performance_metrics.png')
+            plt.close()
+            
+            print("Visualizations saved as 'retrieval_accuracy.png' and 'performance_metrics.png'")
+            
+        except Exception as e:
+            print(f"Error creating visualization: {str(e)}")
+
 if __name__ == "__main__":
     print("Creating application instance...")  # Debug print
     app = ShapeComparisonGUI()
-    print("Running application...")  # Debug print
+    # print("Running application...")  # Debug print
+    # app.run()
+    # Run evaluation before showing the GUI
+    print("\nRunning system evaluation...")
+    results = app.evaluate_retrieval_accuracy(K=5)
+    app.visualize_evaluation_results(results)
+    
+    print("\nStarting GUI...")
     app.run()
